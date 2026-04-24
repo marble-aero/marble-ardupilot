@@ -10,26 +10,40 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     container: ardupilot/ardupilot-dev-base:v0.1.3
-    strategy:
-      fail-fast: false  # don't cancel if a job from the matrix fails
-      matrix:
-        config: [
-            check_autotest_options,
-            param_parse,
-            python-cleanliness,
-            astyle-cleanliness,
-            validate_board_list,
-            logger_metadata,
-       ]
     steps:
       # git checkout the PR
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-      - name: test ${{matrix.config}}
+      - name: check_autotest_options
         env:
-          CI_BUILD_TARGET: ${{matrix.config}}
+          CI_BUILD_TARGET: check_autotest_options
         shell: bash
         run: |
           git config --global --add safe.directory ${GITHUB_WORKSPACE}
           Tools/scripts/build_ci.sh
+      - name: param_parse
+        env:
+          CI_BUILD_TARGET: param_parse
+        shell: bash
+        run: Tools/scripts/build_ci.sh
+      - name: python-cleanliness
+        env:
+          CI_BUILD_TARGET: python-cleanliness
+        shell: bash
+        run: Tools/scripts/build_ci.sh
+      - name: astyle-cleanliness
+        env:
+          CI_BUILD_TARGET: astyle-cleanliness
+        shell: bash
+        run: Tools/scripts/build_ci.sh
+      - name: validate_board_list
+        env:
+          CI_BUILD_TARGET: validate_board_list
+        shell: bash
+        run: Tools/scripts/build_ci.sh
+      - name: logger_metadata
+        env:
+          CI_BUILD_TARGET: logger_metadata
+        shell: bash
+        run: Tools/scripts/build_ci.sh

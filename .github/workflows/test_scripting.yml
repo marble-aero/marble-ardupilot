@@ -58,7 +58,7 @@ jobs:
           git config --global --add safe.directory ${GITHUB_WORKSPACE}
           PATH="/github/home/.local/bin:$PATH"
           ./waf configure --board sitl
-          timeout 10 ./waf antennatracker --scripting-docs || code=$?; if [[ $code -ne 124 && $code -ne 0 ]]; then exit $code; fi
+          timeout 10 ./waf arducopter --scripting-docs || code=$?; if [[ $code -ne 124 && $code -ne 0 ]]; then exit $code; fi
 
       - name: run compare
         run: |
