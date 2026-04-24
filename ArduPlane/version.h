@@ -6,7 +6,7 @@
 
 #include "ap_version.h"
 
-#define THISFIRMWARE "MarblePlane V4.7.0.1-beta5"
+#define THISFIRMWARE "MarblePlane V4.7.0.2-beta5"
 
 // the following line is parsed by the autotest scripts
 #define FIRMWARE_VERSION 4,7,0,FIRMWARE_VERSION_TYPE_DEV
