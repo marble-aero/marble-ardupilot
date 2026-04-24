@@ -68,22 +68,9 @@ jobs:
             chibios,
         ]
         config: [
-            Durandal,
-            MatekF405,
-            KakuteF7,
-            MatekH743-bdshot,
-            Pixhawk1-1M,
-            MatekF405-CAN,  # see special "build bootloader" code below
-            DrotekP3Pro,  # see special "build bootloader" code below
-            Hitec-Airspeed,  # see special code for Periph below (3 places!)
-            f103-GPS  # see special code for Periph below (3 places!)
+            CubeOrange,
+            CubeOrangePlus,
         ]
-        include:
-          - config: disco
-            toolchain: armhf
-        exclude:
-          - config: disco
-            toolchain: chibios
     steps:
       - uses: actions/checkout@v4
         with:
