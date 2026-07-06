@@ -45,7 +45,7 @@
 
 // maximum number of Temperature Sensors
 #ifndef AP_TEMPERATURE_SENSOR_MAX_INSTANCES
-#define AP_TEMPERATURE_SENSOR_MAX_INSTANCES             3
+#define AP_TEMPERATURE_SENSOR_MAX_INSTANCES             8
 #endif
 
 // first sensor is always the primary sensor
