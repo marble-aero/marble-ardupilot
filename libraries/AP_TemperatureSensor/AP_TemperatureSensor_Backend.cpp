@@ -18,9 +18,11 @@
 #if AP_TEMPERATURE_SENSOR_ENABLED
 #include "AP_TemperatureSensor_Backend.h"
 
+#include <cstdio>
 #include <AP_Logger/AP_Logger.h>
 #include <AP_BattMonitor/AP_BattMonitor.h>
 #include <AP_Servo_Telem/AP_Servo_Telem.h>
+#include <GCS_MAVLink/GCS.h>
 
 /*
   All backends use the same parameter table and set of indices. Therefore, two
@@ -101,6 +103,13 @@ void AP_TemperatureSensor_Backend::update_external_libraries(const float tempera
         case AP_TemperatureSensor_Params::Source::Motor:
             t.motor_temp_cdeg = temperature * 100;
             update_telem_data(_params.source_id-1, t, AP_ESC_Telem_Backend::TelemetryType::MOTOR_TEMPERATURE_EXTERNAL);
+#if HAL_GCS_ENABLED
+            {
+                char name[11]; // NAMED_VALUE_FLOAT name field is 10 chars + null
+                snprintf(name, sizeof(name), "motor %d", (int)_params.source_id.get());
+                gcs().send_named_float(name, temperature);
+            }
+#endif
             break;
 #endif
 
