@@ -592,6 +592,9 @@ public:
     AP_Int8 rangefinder_land_orient;
 #endif
 
+    // if set, log airspeed/baro/vibration data independently of the IMU log bit
+    AP_Int8 log_separate_sensors;
+
 #if AP_PLANE_SYSTEMID_ENABLED
     AP_SystemID systemid;
 #endif

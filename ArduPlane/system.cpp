@@ -63,7 +63,7 @@ void Plane::init_ardupilot()
 
 #if AP_AIRSPEED_ENABLED
     airspeed.set_fixedwing_parameters(&aparm);
-    airspeed.set_log_bit(MASK_LOG_SENSORS);
+    airspeed.set_log_bit(g2.log_separate_sensors ? MASK_LOG_ANY : MASK_LOG_IMU);
 #endif
 
     // GPS Initialization
@@ -445,7 +445,7 @@ void Plane::startup_INS(void)
 
     // read Baro pressure at ground
     //-----------------------------
-    barometer.set_log_baro_bit(MASK_LOG_SENSORS);
+    barometer.set_log_baro_bit(g2.log_separate_sensors ? MASK_LOG_ANY : MASK_LOG_IMU);
     barometer.calibrate();
 }
 
