@@ -119,7 +119,7 @@ enum log_messages {
 #define MASK_LOG_ATTITUDE_FULLRATE      (1U<<20)
 #define MASK_LOG_VIDEO_STABILISATION    (1UL<<21)
 #define MASK_LOG_NOTCH_FULLRATE         (1UL<<22)
-#define MASK_LOG_SENSORS                (1UL<<23)
+#define MASK_LOG_ANY                    0xFFFF
 
 enum {
     CRASH_DETECT_ACTION_BITMASK_DISABLED = 0,

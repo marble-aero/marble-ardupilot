@@ -335,7 +335,7 @@ void Plane::update_logging25(void)
     if (should_log(MASK_LOG_RC))
         Log_Write_RC();
 
-    if (should_log(MASK_LOG_SENSORS))
+    if (should_log(g2.log_separate_sensors ? MASK_LOG_ANY : MASK_LOG_IMU))
         AP::ins().Write_Vibration();
 
 #if AP_PLANE_BLACKBOX_LOGGING
