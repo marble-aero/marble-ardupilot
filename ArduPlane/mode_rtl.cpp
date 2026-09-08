@@ -18,8 +18,20 @@ bool ModeRTL::_enter()
             return true;
         }
 
-        // if Q_RTL_MODE is QRTL always, immediately switch to QRTL mode
-        if (plane.quadplane.rtl_mode == QuadPlane::RTL_MODE::QRTL_ALWAYS) {
+        // if Q_RTL_MODE is QRTL always, immediately switch to QRTL mode --
+        // unless a DO_RETURN_PATH_START leg might still be tried first, in
+        // which case defer to navigate() so it can attempt the jump before
+        // falling back to QRTL_ALWAYS. (The jump itself can't be attempted
+        // here in _enter(): calling set_mode(AUTO) from within this
+        // in-progress set_mode(RTL) call would nest inside it, and the
+        // outer call's deferred exit() of the *previous* mode -- which only
+        // runs after _enter() returns -- would then incorrectly fire
+        // against whatever mode we nested-switched into, stopping its
+        // mission right after we started it. navigate() runs on its own
+        // scheduler tick, so it's a safe, non-nested place to do this.)
+        const bool may_use_return_path = (plane.g.rtl_autoland == RtlAutoland::DO_RETURN_PATH_START &&
+                                           plane.control_mode_reason != ModeReason::MISSION_END);
+        if (!may_use_return_path && plane.quadplane.rtl_mode == QuadPlane::RTL_MODE::QRTL_ALWAYS) {
             plane.set_mode(plane.mode_qrtl, ModeReason::QRTL_INSTEAD_OF_RTL);
             return true;
         }
@@ -123,7 +135,8 @@ void ModeRTL::navigate()
                 // on every loop
                 plane.auto_state.checked_for_autoland = true;
 
-        } else if (plane.g.rtl_autoland == RtlAutoland::DO_RETURN_PATH_START) {
+        } else if (plane.g.rtl_autoland == RtlAutoland::DO_RETURN_PATH_START &&
+                   plane.control_mode_reason != ModeReason::MISSION_END) {
             if (plane.have_position && plane.mission.jump_to_closest_mission_leg(plane.current_loc)) {
                 plane.mission.set_force_resume(true);
                 if (plane.set_mode(plane.mode_auto, ModeReason::RTL_COMPLETE_SWITCHING_TO_FIXEDWING_AUTOLAND)) {
@@ -134,6 +147,15 @@ void ModeRTL::navigate()
                 plane.mission.set_force_resume(false);
             }
             plane.auto_state.checked_for_autoland = true;
+
+#if HAL_QUADPLANE_ENABLED
+            // no return path found; if QRTL_ALWAYS was deferred in _enter()
+            // waiting for this check, switch to QRTL now
+            if (plane.quadplane.available() && plane.quadplane.rtl_mode == QuadPlane::RTL_MODE::QRTL_ALWAYS) {
+                plane.set_mode(plane.mode_qrtl, ModeReason::QRTL_INSTEAD_OF_RTL);
+                return;
+            }
+#endif
         }
     }
 }

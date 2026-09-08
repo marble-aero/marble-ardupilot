@@ -53,6 +53,12 @@ private:
     // ignored unless OPTION_DELAY_ARMING or OPTION_TILT_DISARMED is set
     bool delay_arming;
 
+    // UTC time-of-day captured at arming, used to report arm/disarm/flight times on disarm
+    bool arm_utc_time_valid;
+    uint8_t arm_utc_hour;
+    uint8_t arm_utc_min;
+    uint8_t arm_utc_sec;
+
 #if AP_PLANE_BLACKBOX_LOGGING
     AP_Float blackbox_speed;
     uint32_t last_over_3dspeed_ms;

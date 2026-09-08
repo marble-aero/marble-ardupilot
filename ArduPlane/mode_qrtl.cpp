@@ -86,6 +86,35 @@ void ModeQRTL::update()
  */
 void ModeQRTL::run()
 {
+    if (!plane.auto_state.checked_for_autoland) {
+        plane.auto_state.checked_for_autoland = true;
+        // if a DO_RETURN_PATH_START leg is available, jump to it and fly it
+        // in AUTO instead of QRTL. Skipped when QRTL was entered because the
+        // mission just ended (avoids re-jumping into the same leg forever),
+        // and skipped when QRTL was entered as a hand-off from RTL (RTL's
+        // own navigate() already attempted this before switching to QRTL,
+        // so re-attempting here would be redundant and could re-loop).
+        // Deliberately done here in run() (which executes on its own
+        // scheduler tick), not in _enter() -- calling set_mode(AUTO) from
+        // within _enter() would nest inside this mode's own in-progress
+        // set_mode() call, and the outer call's deferred exit() of the
+        // *previous* mode (run only after _enter() returns) would then
+        // incorrectly fire against whatever mode we nested-switched into,
+        // stopping its mission right after we started it.
+        if (plane.g.rtl_autoland == RtlAutoland::DO_RETURN_PATH_START &&
+            plane.control_mode_reason != ModeReason::MISSION_END &&
+            plane.control_mode_reason != ModeReason::QRTL_INSTEAD_OF_RTL &&
+            plane.control_mode_reason != ModeReason::RTL_COMPLETE_SWITCHING_TO_VTOL_LAND_RTL) {
+            if (plane.have_position && plane.mission.jump_to_closest_mission_leg(plane.current_loc)) {
+                plane.mission.set_force_resume(true);
+                if (plane.set_mode(plane.mode_auto, ModeReason::RTL_COMPLETE_SWITCHING_TO_FIXEDWING_AUTOLAND)) {
+                    return;
+                }
+                plane.mission.set_force_resume(false);
+            }
+        }
+    }
+
     const uint32_t now = AP_HAL::millis();
     if (quadplane.tailsitter.in_vtol_transition(now)) {
         // Tailsitters in FW pull up phase of VTOL transition run FW controllers
