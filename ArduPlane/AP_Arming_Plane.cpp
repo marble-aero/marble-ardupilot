@@ -6,6 +6,8 @@
 
 #include "qautotune.h"
 
+#include <AP_RTC/AP_RTC.h>
+
 constexpr uint32_t AP_ARMING_DELAY_MS = 2000; // delay from arming to start of motor spoolup
 
 const AP_Param::GroupInfo AP_Arming_Plane::var_info[] = {
@@ -218,10 +220,14 @@ bool AP_Arming_Plane::quadplane_checks(bool display_failure)
         ret = false;
     }
 
-    // combining Q_RTL_MODE with either of the RTL_AUTOLAND options
-    // leads to precedence questions, so just don't allow it:
+    // SWITCH_QRTL/VTOL_APPROACH_QRTL switch to QRTL mid-navigate, which still
+    // races with RTL_AUTOLAND's own DO_LAND_START/DO_RETURN_PATH_START handling
+    // on precedence, so keep those blocked. QRTL_ALWAYS is fine to combine:
+    // ModeRTL::_enter() always attempts the DO_RETURN_PATH_START jump before
+    // ever switching to QRTL.
     if (plane.g.rtl_autoland != RtlAutoland::RTL_DISABLE &&
-        plane.quadplane.rtl_mode != QuadPlane::RTL_MODE::NONE) {
+        (plane.quadplane.rtl_mode == QuadPlane::RTL_MODE::SWITCH_QRTL ||
+         plane.quadplane.rtl_mode == QuadPlane::RTL_MODE::VTOL_APPROACH_QRTL)) {
         check_failed(Check::PARAMETERS, display_failure, "unset one of RTL_AUTOLAND or Q_RTL_MODE");
         ret = false;
     }
@@ -314,6 +320,13 @@ bool AP_Arming_Plane::arm(const AP_Arming::Method method, const bool do_arming_c
         plane.takeoff_state.rudder_takeoff_warn_ms = AP_HAL::millis();
     }
 
+#if AP_RTC_ENABLED
+    uint16_t arm_utc_ms;
+    arm_utc_time_valid = AP::rtc().get_system_clock_utc(arm_utc_hour, arm_utc_min, arm_utc_sec, arm_utc_ms);
+#else
+    arm_utc_time_valid = false;
+#endif
+
     send_arm_disarm_statustext("Throttle armed");
 
     return true;
@@ -332,6 +345,10 @@ bool AP_Arming_Plane::disarm(const AP_Arming::Method method, bool do_disarm_chec
             return false;
         }
     }
+
+    // capture before AP_Arming::disarm() below, as arm_time_us() reads as
+    // zero once no longer armed
+    const uint64_t arm_time_us_at_disarm = arm_time_us();
 
     if (!AP_Arming::disarm(method, do_disarm_checks)) {
         return false;
@@ -368,6 +385,29 @@ bool AP_Arming_Plane::disarm(const AP_Arming::Method method, bool do_disarm_chec
     plane.takeoff_state.initial_direction.initialized = false;
 #endif
     send_arm_disarm_statustext("Throttle disarmed");
+
+    if (!option_enabled(AP_Arming::Option::DISABLE_STATUSTEXT_ON_STATE_CHANGE) && arm_time_us_at_disarm != 0) {
+        const uint64_t disarm_time_us = AP_HAL::micros64();
+        const uint32_t flight_time_s = (disarm_time_us - arm_time_us_at_disarm) / 1000000ULL;
+        const unsigned flight_min = flight_time_s / 60;
+        const unsigned flight_sec = flight_time_s % 60;
+
+        bool disarm_utc_time_valid = false;
+        uint8_t disarm_utc_hour = 0, disarm_utc_min = 0, disarm_utc_sec = 0;
+#if AP_RTC_ENABLED
+        uint16_t disarm_utc_ms;
+        disarm_utc_time_valid = AP::rtc().get_system_clock_utc(disarm_utc_hour, disarm_utc_min, disarm_utc_sec, disarm_utc_ms);
+#endif
+
+        if (arm_utc_time_valid && disarm_utc_time_valid) {
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Armed %02u:%02u:%02u Disarmed %02u:%02u:%02u",
+                          arm_utc_hour, arm_utc_min, arm_utc_sec,
+                          disarm_utc_hour, disarm_utc_min, disarm_utc_sec);
+        } else {
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Flight time %02u:%02u", flight_min, flight_sec);
+        }
+    }
+
     return true;
 }
 

@@ -1257,6 +1257,14 @@ MAV_MISSION_RESULT AP_Mission::mavlink_int_to_mission_cmd(const mavlink_mission_
         break;
 
     case MAV_CMD_DO_RETURN_PATH_START:                  // MAV ID: 188
+        // param1: 0 = rejoin at the closest point anywhere on this leg (default)
+        //         1 = always rejoin at the first waypoint after this marker
+        //         >=2 = waypoint index threshold: if the aircraft's current mission
+        //               progress has reached/passed this waypoint, force-select this
+        //               leg's first waypoint, overriding distance-based selection
+        cmd.p1 = (uint16_t)packet.param1;
+        break;
+
     case MAV_CMD_DO_LAND_START:                         // MAV ID: 189
         break;
 
@@ -1777,6 +1785,9 @@ bool AP_Mission::mission_cmd_to_mavlink_int(const AP_Mission::Mission_Command& c
         break;
 
     case MAV_CMD_DO_RETURN_PATH_START:                  // MAV ID: 188
+        packet.param1 = cmd.p1;
+        break;
+
     case MAV_CMD_DO_LAND_START:                         // MAV ID: 189
         break;
 
@@ -2487,7 +2498,15 @@ bool AP_Mission::jump_to_landing_sequence(const Location &current_loc)
 }
 
 /*
-   find the closest point on the mission after a DO_RETURN_PATH_START and before DO_LAND_START or landing
+   find the closest point on the mission after a DO_RETURN_PATH_START and before DO_LAND_START or landing.
+   A DO_RETURN_PATH_START's param1 controls its rejoin behavior:
+     0 (default): rejoin at the closest point anywhere on this leg
+     1:           always rejoin at the first waypoint after this marker
+     >=2:         waypoint-index threshold - if the aircraft's current mission
+                  progress (get_current_nav_index()) has reached/passed this
+                  waypoint, force-select this leg's first waypoint, overriding
+                  the normal closest-leg distance comparison. If multiple legs'
+                  thresholds are satisfied, the highest satisfied threshold wins.
  */
 bool AP_Mission::jump_to_closest_mission_leg(const Location &current_loc)
 {
@@ -2506,23 +2525,61 @@ bool AP_Mission::jump_to_closest_mission_leg(const Location &current_loc)
     uint16_t landing_start_index = 0;
     float min_distance = -1;
 
+    // a force-selected leg (param1 >= 2, threshold satisfied) always wins
+    // over any distance-based candidate; among multiple satisfied
+    // thresholds the highest one wins
+    uint16_t forced_index = 0;
+    uint16_t forced_threshold = 0;
+
+    const uint16_t current_nav_index = get_current_nav_index();
+
     // This defines the maximum number of waypoints that will be searched, this limits the worst case runtime
     uint16_t search_remaining = 1000;
 
+    // how many DO_RETURN_PATH_START items were found in the mission, for GCS feedback
+    uint16_t num_legs_found = 0;
+
     // Go through mission and check each DO_RETURN_PATH_START
     for (uint16_t i = 1; i < num_commands(); i++) {
-        if (get_command_id(i) == uint16_t(MAV_CMD_DO_RETURN_PATH_START)) {
-            uint16_t tmp_index;
-            float tmp_distance;
-            if (distance_to_mission_leg(i, search_remaining, tmp_distance, tmp_index, current_loc) && (min_distance < 0 || tmp_distance <= min_distance)){
-                min_distance = tmp_distance;
-                landing_start_index = tmp_index;
+        Mission_Command tmp_cmd;
+        if (!read_cmd_from_storage(i, tmp_cmd) || tmp_cmd.id != uint16_t(MAV_CMD_DO_RETURN_PATH_START)) {
+            continue;
+        }
+        num_legs_found++;
+
+        if (tmp_cmd.p1 >= 2) {
+            if (current_nav_index >= tmp_cmd.p1 && tmp_cmd.p1 >= forced_threshold) {
+                uint16_t tmp_index;
+                float tmp_distance;
+                if (distance_to_mission_leg(i, search_remaining, tmp_distance, tmp_index, current_loc, true)) {
+                    forced_threshold = tmp_cmd.p1;
+                    forced_index = tmp_index;
+                }
             }
             if (search_remaining == 0) {
-                // Run out of time to search, stop and return the best so far
                 break;
             }
+            continue;
         }
+
+        // param1 == 1: always rejoin at the first waypoint after this marker
+        // param1 == 0 (default): rejoin at the closest point anywhere on this leg
+        const bool first_waypoint_only = (tmp_cmd.p1 == 1);
+
+        uint16_t tmp_index;
+        float tmp_distance;
+        if (distance_to_mission_leg(i, search_remaining, tmp_distance, tmp_index, current_loc, first_waypoint_only) && (min_distance < 0 || tmp_distance <= min_distance)){
+            min_distance = tmp_distance;
+            landing_start_index = tmp_index;
+        }
+        if (search_remaining == 0) {
+            // Run out of time to search, stop and return the best so far
+            break;
+        }
+    }
+
+    if (forced_index != 0) {
+        landing_start_index = forced_index;
     }
 
     if (landing_start_index != 0 && set_current_cmd(landing_start_index)) {
@@ -2532,12 +2589,16 @@ bool AP_Mission::jump_to_closest_mission_leg(const Location &current_loc)
             resume();
         }
 
-        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Return path started");
+        if (forced_index != 0) {
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Return path started: WP%u (forced, threshold WP%u)", landing_start_index, forced_threshold);
+        } else {
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Return path started: WP%u (%.0fm)", landing_start_index, min_distance);
+        }
         _flags.in_return_path = true;
         return true;
     }
 
-    // Failed to find do land start
+    GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Unable to start return path (%u legs found)", num_legs_found);
     return false;
 }
 
@@ -2692,7 +2753,7 @@ reset_do_jump_tracking:
 
 // Approximate the distance travelled to return to the mission path. DO_JUMP commands are observed in look forward.
 // Stop searching once reaching a landing or do-land-start
-bool AP_Mission::distance_to_mission_leg(uint16_t start_index, uint16_t &search_remaining, float &rejoin_distance, uint16_t &rejoin_index, const Location& current_loc)
+bool AP_Mission::distance_to_mission_leg(uint16_t start_index, uint16_t &search_remaining, float &rejoin_distance, uint16_t &rejoin_index, const Location& current_loc, bool first_waypoint_only)
 {
     Location prev_loc;
     Mission_Command temp_cmd;
@@ -2707,7 +2768,9 @@ bool AP_Mission::distance_to_mission_leg(uint16_t start_index, uint16_t &search_
     }
 
     // run through remainder of mission to approximate a distance to landing
-    uint16_t index = start_index;
+    // first_waypoint_only: skip past the DO_RETURN_PATH_START marker itself so its
+    // own stored location is never used as the rejoin point
+    uint16_t index = first_waypoint_only ? (start_index + 1) : start_index;
     for (; search_remaining > 0; search_remaining--) {
         // search until the end of the mission command list
         for (uint16_t cmd_index = index; cmd_index <= (unsigned)_cmd_total; cmd_index++) {
@@ -2721,6 +2784,13 @@ bool AP_Mission::distance_to_mission_leg(uint16_t start_index, uint16_t &search_
         index = temp_cmd.index + 1;
 
         if (stored_in_location(temp_cmd.id) && temp_cmd.content.location.initialised()) {
+            if (first_waypoint_only) {
+                // always rejoin at the first waypoint found in this leg
+                rejoin_distance = temp_cmd.content.location.get_distance_NED_alt_frame(current_loc).length();
+                rejoin_index = temp_cmd.index;
+                ret = true;
+                goto reset_do_jump_tracking;
+            }
             if (prev_loc.lat == 0 && prev_loc.lng == 0) {
                 // Need a valid previous location to do distance to leg calculation
                 prev_loc = temp_cmd.content.location;
