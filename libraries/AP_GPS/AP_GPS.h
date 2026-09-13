@@ -766,6 +766,10 @@ private:
 #if GPS_MAX_RECEIVERS > 1
     /// Update primary instance
     void update_primary(void);
+
+    // true if the accuracy reported by instance is at least as good as
+    // relative_to. Returns true if either receiver does not report accuracy.
+    bool accuracy_at_least_as_good(uint8_t instance, uint8_t relative_to) const;
 #endif
 
     // helper function for mavlink gps yaw
