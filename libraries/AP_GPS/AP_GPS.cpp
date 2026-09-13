@@ -1098,6 +1098,28 @@ void AP_GPS::update(void)
   update primary GPS instance
  */
 #if GPS_MAX_RECEIVERS > 1
+/*
+  return true if the accuracy reported by instance is at least as good as the
+  accuracy reported by relative_to. If either receiver does not report an
+  accuracy we return true.
+ */
+bool AP_GPS::accuracy_at_least_as_good(uint8_t instance, uint8_t relative_to) const
+{
+    float hacc_new, hacc_old;
+    if (horizontal_accuracy(instance, hacc_new) &&
+        horizontal_accuracy(relative_to, hacc_old) &&
+        hacc_new > hacc_old) {
+        return false;
+    }
+    float vacc_new, vacc_old;
+    if (vertical_accuracy(instance, vacc_new) &&
+        vertical_accuracy(relative_to, vacc_old) &&
+        vacc_new > vacc_old) {
+        return false;
+    }
+    return true;
+}
+
 void AP_GPS::update_primary(void)
 {
 #if AP_GPS_BLENDED_ENABLED
@@ -1224,7 +1246,10 @@ void AP_GPS::update_primary(void)
 
         bool another_gps_has_1_or_more_sats = (state[i].num_sats >= state[primary_instance].num_sats + 1);
 
-        if (state[i].status == state[primary_instance].status && another_gps_has_1_or_more_sats) {
+        // don't switch to a GPS that has more satellites but is reporting
+        // worse accuracy than the current primary
+        if (state[i].status == state[primary_instance].status && another_gps_has_1_or_more_sats &&
+            accuracy_at_least_as_good(i, primary_instance)) {
 
             bool another_gps_has_2_or_more_sats = (state[i].num_sats >= state[primary_instance].num_sats + 2);
 
