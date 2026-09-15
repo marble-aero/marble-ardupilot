@@ -103,9 +103,21 @@ QuadPlane::QuadPlane(const char *frame_str) :
     // we use zero terminal velocity to let the plane model handle the drag
     frame->init(frame_str, &battery);
 
-    // increase mass for plane components
-    mass = frame->get_mass() * 1.5;
+    if (is_positive(coefficient.mass)) {
+        /*
+          the json "mass" is the total mass of the vehicle, so use it
+          directly. The multicopter frame has already sized its thrust
+          against the same value, so the two stay consistent
+         */
+        mass = coefficient.mass;
+    } else {
+        // no json mass given, so scale up the multicopter frame mass to
+        // account for the plane components
+        mass = frame->get_mass() * 1.5;
+    }
     frame->set_mass(mass);
+
+    ::printf("QuadPlane model: total mass %.3f kg, %u VTOL motors\n", mass, frame->num_motors);
 
     lock_step_scheduled = true;
 }
@@ -146,9 +158,9 @@ void QuadPlane::update(const struct sitl_input &input)
     } else {
         throttle = filtered_servo_range(input, 2);
     }
-    // assume 20A at full fwd throttle
+    // add the forward motor draw on top of the VTOL frame current
     throttle = fabsf(throttle);
-    battery_current += 20 * throttle;
+    battery_current += coefficient.fwd_batt_amps * throttle;
     
     rot_accel += quad_rot_accel;
     accel_body += quad_accel_body;

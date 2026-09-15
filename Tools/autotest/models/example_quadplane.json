@@ -1,0 +1,253 @@
+# Fully commented reference model for a quadplane SITL simulation.
+#
+# Run with:
+#   sim_vehicle.py -v ArduPlane -f quadplane \
+#       --model "quadplane:Tools/autotest/models/example_quadplane.json"
+#
+# The same file is read twice: SITL::Plane::load_coeffs() takes the fixed wing
+# aerodynamics, and SITL::Frame::load_frame_params() takes the VTOL motor and
+# battery model. Every key is optional; anything left out keeps its built in
+# default. Comments run from a '#' to the end of the line and are stripped
+# before parsing.
+#
+# Angles are in radians, forces in newtons, masses in kg, lengths in m.
+
+{
+    # ---------------------------------------------------------------
+    # Mass and inertia
+    # ---------------------------------------------------------------
+
+    # Total vehicle mass. Used by both the aero model and the VTOL frame, so
+    # the two stay consistent. Omit it and a plane defaults to 2kg while a
+    # quadplane falls back to the legacy "frame mass x 1.5" behaviour.
+    "mass" : 12.0,
+
+    # Moment of inertia about the body roll, pitch and yaw axes, in kg.m^2.
+    # Aerodynamic torque is divided by this to get angular acceleration.
+    # The legacy model applied torque directly as acceleration, so the default
+    # is [1, 1, 1]; set it to real values or the aircraft will roll and pitch
+    # far faster than the real one. For a rough first estimate treat the
+    # airframe as a point mass at each extremity:
+    #   Ixx ~= mass * (span/2)^2   / 8      (roll)
+    #   Iyy ~= mass * (length/2)^2 / 8      (pitch)
+    #   Izz ~= Ixx + Iyy                    (yaw)
+    "moment_inertia" : [2.5, 3.1, 5.2],
+
+    # ---------------------------------------------------------------
+    # Forward propulsion
+    # ---------------------------------------------------------------
+
+    # Thrust in newtons at full forward throttle. The sim is linear in
+    # throttle, so thrust = throttle_fraction * max_thrust. Calibrate this so
+    # that level cruise in SITL sits at the same throttle percentage as the
+    # real aircraft, at the same airspeed.
+    "max_thrust" : 21.0,
+
+    # Alternative to max_thrust: the throttle fraction at which thrust equals
+    # weight, giving max_thrust = mass * 9.81 / hover_throttle. Only used when
+    # max_thrust is absent or zero.
+    "hover_throttle" : 0.7,
+
+    # Height of the model origin above the ground, in m. Affects where the
+    # vehicle sits on the ground and when it registers a landing.
+    "frame_height" : 0.15,
+
+    # ---------------------------------------------------------------
+    # Wing geometry
+    # ---------------------------------------------------------------
+
+    "s" : 0.9,      # reference wing area, m^2
+    "b" : 3.0,      # wing span, m
+    "c" : 0.30,     # mean aerodynamic chord, m
+                    # aspect ratio is derived as b^2/s
+
+    # ---------------------------------------------------------------
+    # Lift
+    # ---------------------------------------------------------------
+    # Below the stall, CL = c_lift_0 + c_lift_a * alpha. Past alpha_stall the
+    # model blends into a flat plate curve, which is what produces a genuine
+    # lift break rather than lift rising forever.
+
+    "c_lift_0" : 0.59,       # CL at zero angle of attack
+    "c_lift_a" : 4.2,        # lift curve slope, per radian (thin aerofoil
+                             # theory gives ~2*pi; real wings are 4 to 6)
+    "c_lift_q" : 0.0,        # lift due to pitch rate
+    "c_lift_deltae" : 0.0,   # lift due to elevator
+
+    # Angle of attack at CLmax, in radians. This sets the stall speed together
+    # with wing loading, so it is the single most important number if you want
+    # the simulator to stall where the real aircraft stalls. Read it off a log
+    # as the AoA at which lift stops increasing.
+    "alpha_stall" : 0.178,   # 10.2 degrees
+
+    # Sharpness of the blend from the linear curve into the flat plate curve.
+    # Higher is a more abrupt stall. 50 is a reasonably sharp break.
+    "mcoeff" : 50,
+
+    # ---------------------------------------------------------------
+    # Drag
+    # ---------------------------------------------------------------
+    # CD = c_drag_p + CL^2 / (pi * oswald * AR)
+
+    "c_drag_p" : 0.043,      # parasitic drag coefficient. Tune this until
+                             # cruise throttle in SITL matches the real log
+    "oswald" : 0.85,         # Oswald span efficiency, 0.7 to 0.9 typically
+    "c_drag_q" : 0.0,        # drag due to pitch rate
+    "c_drag_deltae" : 0.0,   # drag due to elevator deflection
+
+    # ---------------------------------------------------------------
+    # Side force (y axis)
+    # ---------------------------------------------------------------
+
+    "c_y_0" : 0.0,           # side force at zero sideslip
+    "c_y_b" : -0.98,         # side force due to sideslip (beta)
+    "c_y_p" : 0.0,           # side force due to roll rate
+    "c_y_r" : 0.0,           # side force due to yaw rate
+    "c_y_deltaa" : 0.0,      # side force due to aileron
+    "c_y_deltar" : -0.2,     # side force due to rudder
+
+    # ---------------------------------------------------------------
+    # Rolling moment (l)
+    # ---------------------------------------------------------------
+
+    "c_l_0" : 0.0,           # rolling moment at zero state
+    "c_l_b" : -0.12,         # dihedral effect: roll due to sideslip
+    "c_l_p" : -1.0,          # roll damping. Always negative. This and
+                             # c_l_deltaa together set the steady roll rate
+                             # for a given aileron deflection
+    "c_l_r" : 0.14,          # roll due to yaw rate
+    "c_l_deltaa" : 0.25,     # roll due to aileron, per unit of normalised
+                             # aileron input (-1 to 1, not radians)
+    "c_l_deltar" : -0.037,   # roll due to rudder
+
+    # ---------------------------------------------------------------
+    # Pitching moment (m)
+    # ---------------------------------------------------------------
+
+    "c_m_0" : 0.045,         # pitching moment at zero angle of attack
+    "c_m_a" : -0.7,          # pitch stiffness. Negative is statically stable;
+                             # more negative means a further forward CG
+    "c_m_q" : -20,           # pitch damping. Always negative
+    "c_m_deltae" : 1.0,      # pitch due to elevator, per unit normalised input
+
+    # ---------------------------------------------------------------
+    # Yawing moment (n)
+    # ---------------------------------------------------------------
+
+    "c_n_0" : 0.0,           # yawing moment at zero state
+    "c_n_b" : 0.25,          # weathercock stability. Positive is stable
+    "c_n_p" : 0.022,         # yaw due to roll rate (adverse yaw when negative)
+    "c_n_r" : -1.0,          # yaw damping. Always negative
+    "c_n_deltaa" : 0.0,      # yaw due to aileron
+    "c_n_deltar" : 0.1,      # yaw due to rudder
+
+    # ---------------------------------------------------------------
+    # Centre of gravity
+    # ---------------------------------------------------------------
+    # Offset in m from the centre of lift to the CG, in body frame
+    # (x forward, y right, z down). Aerodynamic force acting through this
+    # offset produces an extra moment. Moving x negative is nose heavy.
+    "CGOffset" : [-0.05, 0, -0.05],
+
+    # ---------------------------------------------------------------
+    # Control surface travel
+    # ---------------------------------------------------------------
+    # NOTE: deltaa_max, deltae_max and deltar_max are parsed but are not used
+    # anywhere in the simulation. Control inputs reach the aero model already
+    # normalised to -1 to 1, so surface authority is set by c_l_deltaa,
+    # c_m_deltae and c_n_deltar instead. They are listed here only so the
+    # keys are not mistaken for something that has an effect.
+    "deltaa_max" : 0.3491,
+    "deltae_max" : 0.3491,
+    "deltar_max" : 0.3491,
+
+    # ---------------------------------------------------------------
+    # Battery
+    # ---------------------------------------------------------------
+
+    # Plain plane model only: volts dropped from SIM_BATT_VOLTAGE and amps
+    # drawn, both at full forward throttle. A quadplane takes its voltage and
+    # current from the VTOL frame model instead and ignores these two.
+    "batt_volt_drop" : 0.7,
+    "batt_max_amps" : 50,
+
+    # Quadplane only: amps drawn by the forward motor at full throttle. This
+    # is added on top of whatever the VTOL frame model reports.
+    "fwd_batt_amps" : 22,
+
+    # ---------------------------------------------------------------
+    # VTOL lift motors
+    # ---------------------------------------------------------------
+    # These come from the multicopter frame model. The frame type itself
+    # (quad X, hexa, octa and so on) comes from the frame string, not here.
+
+    "num_motors" : 4,
+
+    # Motor to motor diagonal, m. Only used to derive a default
+    # moment_of_inertia for the VTOL frame if one is not given.
+    "diagonal_size" : 1.2,
+
+    # Total rotor disc area in m^2, summed over all lift rotors.
+    # For n rotors of diameter d: n * pi * (d/2)^2.
+    # Coaxial pairs count as a single disc.
+    "disc_area" : 0.81,
+
+    # Hover throttle as a fraction, matching Q_M_THST_HOVER
+    "hoverThrOut" : 0.443,
+
+    # Thrust curve shape, matching Q_M_THST_EXPO
+    "propExpo" : 0.65,
+
+    # Matching Q_M_SPIN_MIN and Q_M_SPIN_MAX
+    "spin_min" : 0.08,
+    "spin_max" : 0.97,
+
+    # Matching Q_M_PWM_MIN and Q_M_PWM_MAX
+    "pwmMin" : 1000,
+    "pwmMax" : 2000,
+
+    # Maximum motor slew rate in percent per second, 0 to disable.
+    # Matches Q_M_SLEW_UP_TIME being unset.
+    "slew_max" : 0,
+
+    # Approximate maximum yaw rate in deg/s, used to scale yaw authority
+    "refRotRate" : 120,
+
+    # Momentum drag coefficient: how much drag the rotor discs generate in
+    # forward flight, relative to a ducted rotor of the same disc area.
+    # Around 0.1 for exposed props on a quadplane.
+    "mdrag_coef" : 0.10,
+
+    # Full battery voltage and capacity
+    "maxVoltage" : 33.6,         # 8S at 4.2V per cell
+    "battCapacityAh" : 22.0,
+    "refBatRes" : 0.015,         # internal resistance in ohms, from BAT.Res
+
+    # Reference point used to estimate the airframe drag of the multicopter
+    # model. Taken from a steady, zero wind forward flight test in a VTOL
+    # mode. For a quadplane the fixed wing model supplies the drag that
+    # matters, so these only need to be roughly right.
+    "refSpd" : 15.0,             # m/s
+    "refAngle" : 20.0,           # degrees of lean at that speed
+    "refVoltage" : 31.7,         # volts during that test
+    "refCurrent" : 40.0,         # amps during that test
+    "refAlt" : 50,               # altitude AMSL, m
+    "refTempC" : 25,             # air temperature, C
+
+    # Per motor overrides, numbered from 1 to num_motors. Positions are in m
+    # from the CG (x forward, y right, z down), thrust vectors are unit
+    # vectors in body frame, and yaw is +1 or -1 for rotation direction.
+    # Omit them all and the frame string's standard layout is used.
+    "motor1_position" : [ 0.42,  0.42, 0],
+    "motor2_position" : [-0.42, -0.42, 0],
+    "motor3_position" : [ 0.42, -0.42, 0],
+    "motor4_position" : [-0.42,  0.42, 0],
+    "motor1_vector" : [0, 0, -1],
+    "motor2_vector" : [0, 0, -1],
+    "motor3_vector" : [0, 0, -1],
+    "motor4_vector" : [0, 0, -1],
+    "motor1_yaw" :  1,
+    "motor2_yaw" :  1,
+    "motor3_yaw" : -1,
+    "motor4_yaw" : -1
+}

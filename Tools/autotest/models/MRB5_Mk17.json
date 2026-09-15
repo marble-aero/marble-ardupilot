@@ -1,0 +1,162 @@
+# MRB5 Mk17 quadplane SITL model
+#
+#   sim_vehicle.py -v ArduPlane -f quadplane \
+#       --model "quadplane:Tools/autotest/models/MRB5_Mk17.json"
+#
+# Note: SITL strips a leading '/' from model paths, so give the path relative
+# to the directory SITL is started in.
+#
+# See example_quadplane.json for what every key means.
+#
+# Values are tagged:
+#   [LOG]   derived from flight 2026-09-14 15-03-30.bin (23 min AUTO survey)
+#   [PARAM] copied from the flight's parameter set
+#   [EST]   estimated, needs confirming against the real airframe
+#   [TODO]  placeholder, must be measured before this model is trustworthy
+#
+# ============================================================================
+# WHAT STILL NEEDS MEASURING
+#
+# Everything below keys off mass and wing area, and neither is in the log.
+# Once you have them, these three relations pin the lift model down. They were
+# derived from the flight and agree with each other to about 15%:
+#
+#   1. Stall speed. AIRSPEED_STALL=30 m/s is confirmed by the departure at
+#      36.8 m/s in a 49 deg bank (n=1.525 -> Vs1g = 29.8 m/s), so:
+#          CLmax = (mass/s) / 56.2
+#      A 30 m/s stall implies a high wing loading, 56 to 79 kg/m^2 depending
+#      on CLmax. Check that against the real wing: if the aircraft is lighter
+#      or the wing bigger than that implies, the stall speed needs revisiting.
+#
+#   2. Cruise lift curve. Steady wings level cruise gave AoA 1.31 deg at
+#      39 m/s and 0.12 deg at 42 m/s, fitting alpha = 253/V^2 - 0.14, so:
+#          c_lift_a ~= (mass/s) / 16.7        per radian
+#          c_lift_0 ~= 0.14 * c_lift_a
+#
+#   3. Consistency. c_lift_0 + c_lift_a * alpha_stall must equal CLmax
+#      from (1). If it does not, the wing area or the stall speed is wrong.
+#
+# The numbers below assume mass 16 kg and s 0.28 m^2, which satisfies all
+# three at CLmax 1.0. REPLACE THEM.
+# ============================================================================
+
+{
+    # ---- mass and inertia ----------------------------------------------
+    "mass" : 16.0,                  # [TODO] all up weight for the survey fit
+    "moment_inertia" : [2.0, 2.6, 4.4],   # [TODO] measure or estimate from
+                                    # span and length; see example file.
+                                    # Roll inertia drives the overshoot that
+                                    # started the departures, so it matters
+
+    # ---- forward propulsion --------------------------------------------
+    # Forward ESC telemetry showed ~22 A median in cruise at ~31.7 V, so
+    # ~700 W electrical. At ~60% total efficiency that is ~10.7 N of thrust
+    # at the 79% cruise throttle, giving ~13.5 N at full throttle.
+    # Calibrate: fly level at 39 m/s in SITL and adjust until the throttle
+    # settles at 79%, matching the log.
+    "max_thrust" : 13.5,            # [EST] newtons at full throttle
+    "frame_height" : 0.15,          # [TODO]
+
+    # ---- wing geometry --------------------------------------------------
+    "s" : 0.28,                     # [TODO] see the note above
+    "b" : 2.2,                      # [TODO]
+    "c" : 0.13,                     # [TODO]
+
+    # ---- lift -----------------------------------------------------------
+    # alpha_stall is the solid one. In the log AoA rose smoothly through the
+    # turn, plateaued at 10.0-10.5 deg as the wing reached CLmax, then ran
+    # away to 22 deg as it departed. That plateau is the stall angle.
+    "alpha_stall" : 0.178,          # [LOG] 10.2 deg
+    "c_lift_a" : 3.42,              # [LOG] (mass/s)/16.7 at 16kg / 0.28m^2
+    "c_lift_0" : 0.48,              # [LOG] 0.14 * c_lift_a
+                                    #       CLmax = 0.48 + 3.42*0.178 = 1.09
+    "mcoeff" : 50,                  # [EST] fairly sharp break, consistent
+                                    # with how quickly the roll departed
+    "c_lift_q" : 0.0,
+    "c_lift_deltae" : 0.0,
+
+    # ---- drag -----------------------------------------------------------
+    "c_drag_p" : 0.035,             # [EST] tune until cruise throttle is 79%
+                                    # at 39 m/s, then leave it alone
+    "oswald" : 0.85,                # [EST]
+    "c_drag_q" : 0.0,
+    "c_drag_deltae" : 0.0,
+
+    # ---- side force -----------------------------------------------------
+    "c_y_0" : 0.0,
+    "c_y_b" : -0.98,                # [EST] skywalker default
+    "c_y_p" : 0.0,
+    "c_y_r" : 0.0,
+    "c_y_deltaa" : 0.0,
+    "c_y_deltar" : -0.2,            # [EST]
+
+    # ---- rolling moment -------------------------------------------------
+    # A regression of roll acceleration on roll rate and aileron over the
+    # whole cruise gave the right signs but only R^2 = 0.25: benign cruise
+    # roll rates are small and dominated by turbulence, so the absolute
+    # values are not identifiable from this log. The RATIO is better
+    # conditioned and came out as c_l_deltaa/c_l_p = -0.135 at b = 3.0 m,
+    # scaling linearly with span. The pair below keeps that ratio.
+    #
+    # To pin these down properly, fly aileron doublets in MANUAL at a couple
+    # of airspeeds and re-run the fit. Until then treat roll response as
+    # approximate, and do not read anything into how the sim behaves at the
+    # edge of the envelope.
+    "c_l_p" : -1.0,                 # [EST] roll damping
+    "c_l_deltaa" : 0.135,           # [LOG] ratio to c_l_p, magnitude [EST]
+    "c_l_b" : -0.037,               # [LOG] ratio c_l_b/c_l_p = 0.037
+    "c_l_0" : 0.0,
+    "c_l_r" : 0.14,                 # [EST]
+    "c_l_deltar" : -0.037,          # [EST]
+
+    # ---- pitching moment ------------------------------------------------
+    "c_m_0" : 0.045,                # [EST] skywalker defaults throughout;
+    "c_m_a" : -0.7,                 # pitch tracked well in the log (0.45 deg
+    "c_m_q" : -20,                  # rms) so these are not the priority
+    "c_m_deltae" : 1.0,
+
+    # ---- yawing moment --------------------------------------------------
+    "c_n_0" : 0.0,
+    "c_n_b" : 0.25,                 # [EST]
+    "c_n_p" : 0.022,                # [EST]
+    "c_n_r" : -1.0,                 # [EST]
+    "c_n_deltaa" : 0.0,
+    "c_n_deltar" : 0.1,             # [EST]
+
+    "CGOffset" : [-0.05, 0, -0.05], # [TODO]
+
+    # ---- battery --------------------------------------------------------
+    # Two SMBus packs summed into BATT (SUM_MASK=6) plus a third small pack.
+    # Cruise draw across the packs was ~38 A total, of which the forward ESC
+    # reported ~22 A; the remainder is payload, heaters and avionics.
+    "fwd_batt_amps" : 22,           # [LOG] forward motor at full throttle
+    "maxVoltage" : 33.6,            # [PARAM] 8S, from FWD_BAT_VOLT_MAX
+    "refBatRes" : 0.015,            # [LOG] median BAT.Res across the packs
+    "battCapacityAh" : 22.0,        # [TODO] BATT_CAPACITY is 0 on the
+                                    # aircraft; the flight used 16.8 Ah
+
+    # ---- VTOL lift motors -----------------------------------------------
+    "num_motors" : 4,               # [PARAM] SERVO9-12 = motors 1-4
+    "hoverThrOut" : 0.443,          # [PARAM] Q_M_THST_HOVER
+    "propExpo" : 0.65,              # [PARAM] Q_M_THST_EXPO
+    "spin_min" : 0.08,              # [PARAM] Q_M_SPIN_MIN
+    "spin_max" : 0.97,              # [PARAM] Q_M_SPIN_MAX
+    "pwmMin" : 1000,                # [PARAM] Q_M_PWM_MIN
+    "pwmMax" : 2000,                # [PARAM] Q_M_PWM_MAX
+    "slew_max" : 0,                 # [PARAM] Q_M_SLEW_UP_TIME unset
+    "diagonal_size" : 1.2,          # [TODO] motor to motor diagonal
+    "disc_area" : 0.81,             # [TODO] n * pi * (d/2)^2 over the lift
+                                    # rotors; 0.81 assumes 4 x 20 inch
+    "mdrag_coef" : 0.10,            # [EST]
+    "refRotRate" : 120,             # [EST]
+
+    # Reference hover/forward flight point for the multicopter drag estimate.
+    # The fixed wing model supplies the drag that matters in cruise, so these
+    # only need to be roughly right.
+    "refSpd" : 15.0,                # [EST]
+    "refAngle" : 20.0,              # [EST]
+    "refVoltage" : 31.7,            # [LOG] cruise pack voltage
+    "refCurrent" : 40.0,            # [EST]
+    "refAlt" : 50,                  # [EST]
+    "refTempC" : 25                 # [EST]
+}

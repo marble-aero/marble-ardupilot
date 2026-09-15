@@ -1,0 +1,1 @@
+{"mass": 12.0, "moment_inertia": [5, 5, 5], "max_thrust": 40.0, "fwd_batt_amps": 35, "num_motors": 4, "hoverThrOut": 0.443, "propExpo": 0.65, "spin_min": 0.08, "spin_max": 0.97, "maxVoltage": 33.6, "s": 0.9, "b": 3.0, "c": 0.3, "alpha_stall": 0.175}

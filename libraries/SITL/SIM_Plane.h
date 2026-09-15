@@ -41,13 +41,50 @@ public:
     }
 
 protected:
-    const float hover_throttle = 0.7f;
     float angle_of_attack;
     float beta;
 
     const struct Coefficients {
         // from last_letter skywalker_2013/aerodynamics.yaml
         // thanks to Georacer!
+
+        /*
+          mass and inertia. These default to zero/unity so that models
+          which don't specify them keep the legacy behaviour.
+         */
+        // total vehicle mass in kg. Zero means use the frame string default
+        // (2kg, or 8kg for -heavy, 22kg for -jet)
+        float mass = 0;
+        // moment of inertia about the body x/y/z axes in kg.m^2. The legacy
+        // model applied aerodynamic torque directly as angular acceleration,
+        // which is equivalent to unity inertia, so that is the default
+        Vector3f moment_inertia{1, 1, 1};
+
+        /*
+          propulsion
+         */
+        // thrust in newtons at full throttle. Zero means derive it from
+        // hover_throttle, which is the legacy behaviour
+        float max_thrust = 0;
+        // throttle fraction (0 to 1) at which thrust equals weight. Only used
+        // when max_thrust is zero
+        float hover_throttle = 0.7;
+
+        /*
+          battery model. Only used for the plain plane model, the quadplane
+          takes voltage and current from the multicopter frame
+         */
+        // volts dropped from SIM_BATT_VOLTAGE at full throttle
+        float batt_volt_drop = 0.7;
+        // amps drawn at full throttle
+        float batt_max_amps = 50;
+        // amps drawn by the forward motor at full throttle (quadplane only,
+        // added on top of the VTOL frame current)
+        float fwd_batt_amps = 20;
+
+        // height of the model origin above the ground in m
+        float frame_height = 0.1;
+
         float s = 0.45;
         float b = 1.88;
         float c = 0.24;

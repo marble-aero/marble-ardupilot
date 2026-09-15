@@ -32,31 +32,36 @@ Plane::Plane(const char *frame_str) :
     const char *colon = strchr(frame_str, ':');
     size_t slen = strlen(frame_str);
     // The last 5 letters are ".json"
-    if (colon != nullptr && slen > 5 && strcmp(&frame_str[slen-5], ".json") == 0) {
+    const bool have_json = colon != nullptr && slen > 5 && strcmp(&frame_str[slen-5], ".json") == 0;
+    if (have_json) {
         load_coeffs(colon+1);
     } else {
         coefficient = default_coefficients;
     }
 
-    mass = 2.0f;
+    // a json supplied mass is the total vehicle mass and overrides the
+    // frame string defaults below
+    const bool json_mass = is_positive(coefficient.mass);
+
+    mass = json_mass ? coefficient.mass : 2.0f;
 
     /*
        scaling from motor power to Newtons. Allows the plane to hold
        vertically against gravity when the motor is at hover_throttle
     */
-    thrust_scale = (mass * GRAVITY_MSS) / hover_throttle;
-    frame_height = 0.1f;
+    thrust_scale = (mass * GRAVITY_MSS) / coefficient.hover_throttle;
+    frame_height = coefficient.frame_height;
 
     ground_behavior = GROUND_BEHAVIOR_FWD_ONLY;
     lock_step_scheduled = true;
 
-    if (strstr(frame_str, "-heavy")) {
+    if (strstr(frame_str, "-heavy") && !json_mass) {
         mass = 8;
     }
-    if (strstr(frame_str, "-jet")) {
+    if (strstr(frame_str, "-jet") && !json_mass) {
         // a 22kg "jet", level top speed is 102m/s
         mass = 22;
-        thrust_scale = (mass * GRAVITY_MSS) / hover_throttle;
+        thrust_scale = (mass * GRAVITY_MSS) / coefficient.hover_throttle;
     }
     if (strstr(frame_str, "-revthrust")) {
         reverse_thrust = true;
@@ -112,8 +117,27 @@ Plane::Plane(const char *frame_str) :
     }
 
     if (strstr(frame_str, "-soaring")) {
-        mass = 2.0;
+        if (!json_mass) {
+            mass = 2.0;
+        }
         coefficient.c_drag_p = 0.05;
+    }
+
+    // an explicit max_thrust wins over anything derived from hover_throttle
+    // above, including the tailsitter and aerobatic scaling
+    if (is_positive(coefficient.max_thrust)) {
+        thrust_scale = coefficient.max_thrust;
+    }
+
+    if (have_json) {
+        // the quadplane constructor may still change the mass, so this is
+        // the fixed wing view of the model
+        ::printf("Plane model: mass %.3f kg, inertia (%.3f, %.3f, %.3f) kg.m^2, max thrust %.1f N\n",
+                 mass,
+                 coefficient.moment_inertia.x,
+                 coefficient.moment_inertia.y,
+                 coefficient.moment_inertia.z,
+                 thrust_scale);
     }
 }
 
@@ -150,6 +174,14 @@ void Plane::load_coeffs(const char *model_json)
     
     json_search vars[] = {
 #define COFF_FLOAT(s) { #s, &coefficient.s, VarType::FLOAT }
+        COFF_FLOAT(mass),
+        { "moment_inertia", &coefficient.moment_inertia, VarType::VECTOR3F },
+        COFF_FLOAT(max_thrust),
+        COFF_FLOAT(hover_throttle),
+        COFF_FLOAT(batt_volt_drop),
+        COFF_FLOAT(batt_max_amps),
+        COFF_FLOAT(fwd_batt_amps),
+        COFF_FLOAT(frame_height),
         COFF_FLOAT(s),
         COFF_FLOAT(b),
         COFF_FLOAT(c),
@@ -207,6 +239,16 @@ void Plane::load_coeffs(const char *model_json)
     }
 
     delete obj;
+
+    // a zero inertia or hover throttle would give a divide by zero
+    if (!is_positive(coefficient.moment_inertia.x) ||
+        !is_positive(coefficient.moment_inertia.y) ||
+        !is_positive(coefficient.moment_inertia.z)) {
+        AP_HAL::panic("%s: moment_inertia must be positive on all axes", model_json);
+    }
+    if (!is_positive(coefficient.hover_throttle)) {
+        AP_HAL::panic("%s: hover_throttle must be positive", model_json);
+    }
 
     ::printf("Loaded plane aero coefficients from %s\n", model_json);
 }
@@ -452,8 +494,8 @@ void Plane::calculate_forces(const struct sitl_input &input, Vector3f &rot_accel
     
     float thrust     = throttle;
 
-    battery_voltage = sitl->batt_voltage - 0.7*throttle;
-    battery_current = (battery_voltage/sitl->batt_voltage)*50.0f*sq(throttle);
+    battery_voltage = sitl->batt_voltage - coefficient.batt_volt_drop*throttle;
+    battery_current = (battery_voltage/sitl->batt_voltage)*coefficient.batt_max_amps*sq(throttle);
 
     if (ice_engine) {
         thrust = icengine.update(input);
@@ -473,7 +515,14 @@ void Plane::calculate_forces(const struct sitl_input &input, Vector3f &rot_accel
     }
     
     Vector3f force = getForce(aileron, elevator, rudder);
+
+    // getTorque() returns a torque in N.m, so divide by the moment of
+    // inertia to get an angular acceleration. The default inertia is unity,
+    // which reproduces the legacy behaviour of using torque directly
     rot_accel = getTorque(aileron, elevator, rudder, thrust, force);
+    rot_accel.x /= coefficient.moment_inertia.x;
+    rot_accel.y /= coefficient.moment_inertia.y;
+    rot_accel.z /= coefficient.moment_inertia.z;
 
     if (have_launcher) {
         /*
