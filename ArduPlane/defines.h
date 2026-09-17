@@ -166,6 +166,12 @@ enum FlightOptions {
     ENABLE_FULL_AERO_LF_ROLL_LIMITS = (1<<16),
 };
 
+// how the leg into an AUTO loiter mission item is flown, see LOITER_ENTRY
+enum class LoiterEntryType : uint8_t {
+    DIRECT     = 0,
+    TANGENTIAL = 1,
+};
+
 enum CrowFlapOptions {
     FLYINGWING       = (1 << 0),
     FULLSPAN         = (1 << 1),

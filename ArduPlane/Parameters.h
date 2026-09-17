@@ -595,6 +595,9 @@ public:
     // if set, log airspeed/baro/vibration data independently of the IMU log bit
     AP_Int8 log_separate_sensors;
 
+    // how the leg into an AUTO loiter mission item is flown, see LoiterEntryType
+    AP_Int8 loiter_entry;
+
 #if AP_PLANE_SYSTEMID_ENABLED
     AP_SystemID systemid;
 #endif
