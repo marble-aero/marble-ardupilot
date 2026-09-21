@@ -414,22 +414,23 @@ bool Plane::calc_loiter_tangent_entry(float scaled_radius)
         return false;
     }
 
-    // AUTO only, and only for the loiter mission items
-    if (control_mode != &mode_auto) {
-        return false;
-    }
-    switch (mission.get_current_nav_cmd().id) {
-    case MAV_CMD_NAV_LOITER_UNLIM:
-    case MAV_CMD_NAV_LOITER_TURNS:
-    case MAV_CMD_NAV_LOITER_TIME:
-    case MAV_CMD_NAV_LOITER_TO_ALT:
-        break;
-    default:
+    if (control_mode == &mode_auto) {
+        // only the loiter mission items, which are the ones that fly a circle
+        switch (mission.get_current_nav_cmd().id) {
+        case MAV_CMD_NAV_LOITER_UNLIM:
+        case MAV_CMD_NAV_LOITER_TURNS:
+        case MAV_CMD_NAV_LOITER_TIME:
+        case MAV_CMD_NAV_LOITER_TO_ALT:
+            break;
+        default:
+            return false;
+        }
+    } else if (control_mode != &mode_guided) {
         return false;
     }
 
 #if HAL_QUADPLANE_ENABLED
-    if (quadplane.in_vtol_auto()) {
+    if (quadplane.in_vtol_auto() || quadplane.guided_mode_enabled()) {
         // a VTOL loiter has no circle to be tangent to
         return false;
     }
@@ -437,8 +438,9 @@ bool Plane::calc_loiter_tangent_entry(float scaled_radius)
 
     /*
       auto_state.crosstrack is deliberately not checked. When it is false
-      set_next_WP() has set prev_WP_loc to the position the loiter command
-      started from, which is still a valid origin for the entry leg
+      prev_WP_loc has been set to the position the command started from, by
+      set_next_WP() in AUTO or set_guided_WP() in GUIDED, which is still a
+      valid origin for the entry leg
      */
     if (loiter.start_time_ms != 0) {
         // we have already reached this loiter, so there is no leg left to fly

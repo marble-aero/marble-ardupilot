@@ -1288,7 +1288,7 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
 
     // @Param: LOITER_ENTRY
     // @DisplayName: AUTO loiter entry type
-    // @Description: Controls how the leg into a loiter mission item is flown in AUTO. When set to Tangential the leg is flown as a straight line from the previous waypoint to the point at which that line is tangent to the loiter circle, so the aircraft rolls onto the circle in the commanded direction instead of flying at the loiter centre and turning in. Applies to NAV_LOITER_UNLIM, NAV_LOITER_TURNS, NAV_LOITER_TIME and NAV_LOITER_TO_ALT. If the previous waypoint is not far enough outside the loiter circle for a useful tangent leg then the normal entry is flown instead.
+    // @Description: Controls how the leg into a loiter is flown in AUTO and GUIDED. When set to Tangential the leg is flown as a straight line from the start of the leg to the point at which that line is tangent to the loiter circle, so the aircraft rolls onto the circle in the commanded direction instead of flying at the loiter centre and turning in. In AUTO the leg starts at the previous waypoint and applies to NAV_LOITER_UNLIM, NAV_LOITER_TURNS, NAV_LOITER_TIME and NAV_LOITER_TO_ALT. In GUIDED the leg starts at the position the aircraft was at when the target was set, so a reposition is entered tangentially from there. If the start of the leg is not far enough outside the loiter circle for a useful tangent leg then the normal entry is flown instead.
     // @Values: 0:Direct,1:Tangential
     // @User: Standard
     AP_GROUPINFO("LOITER_ENTRY", 42, ParametersG2, loiter_entry, 1),
