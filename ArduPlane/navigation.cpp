@@ -5,6 +5,7 @@
   waypoint is at least this multiple of the loiter radius from the loiter
   centre. Below this the tangent leg is too short to be worth flying, and the
   tangent angle becomes ill conditioned as the leg start approaches the circle.
+  At this ratio the leg is 0.66 radii long.
  */
 #define LOITER_TANGENT_ENTRY_MIN_RADIUS_RATIO 1.2f
 
@@ -434,14 +435,20 @@ bool Plane::calc_loiter_tangent_entry(float scaled_radius)
     }
 #endif
 
-    if (!auto_state.crosstrack || loiter.start_time_ms != 0) {
-        // we are not flying a leg into this loiter
+    /*
+      auto_state.crosstrack is deliberately not checked. When it is false
+      set_next_WP() has set prev_WP_loc to the position the loiter command
+      started from, which is still a valid origin for the entry leg
+     */
+    if (loiter.start_time_ms != 0) {
+        // we have already reached this loiter, so there is no leg left to fly
         return false;
     }
 
-    if (current_loc.get_distance(next_WP_loc) <= 3 * scaled_radius) {
-        // we start the command already at the loiter, so there is no entry leg to shape
-        gcs().send_text(MAV_SEVERITY_INFO, "Loiter: direct entry, already at loiter");
+    if (current_loc.get_distance(next_WP_loc) <= scaled_radius) {
+        // already inside the circle, flying back out to a tangency point would
+        // be worse than letting the loiter controller capture from here
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter: direct entry, inside circle");
         return false;
     }
 
@@ -449,8 +456,14 @@ bool Plane::calc_loiter_tangent_entry(float scaled_radius)
     const Vector2f centre_to_prev = next_WP_loc.get_distance_NE(prev_WP_loc);
     const float leg_start_dist = centre_to_prev.length();
 
-    if (leg_start_dist < scaled_radius * LOITER_TANGENT_ENTRY_MIN_RADIUS_RATIO) {
-        gcs().send_text(MAV_SEVERITY_INFO, "Loiter: direct entry, prev WP too close");
+    /*
+      the leg start has to be outside the circle by a margin. Checking the
+      radius is positive as well keeps the division below away from 0/0 if the
+      radius has not been established yet, and keeps acosf() inside its domain
+     */
+    if (!is_positive(scaled_radius) ||
+        leg_start_dist < scaled_radius * LOITER_TANGENT_ENTRY_MIN_RADIUS_RATIO) {
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter: direct entry, entry leg too short");
         return false;
     }
 
