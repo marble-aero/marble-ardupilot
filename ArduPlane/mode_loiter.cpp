@@ -126,7 +126,7 @@ bool ModeLoiter::isHeadingLinedUp_cd(const int32_t bearing_cd, const int32_t hea
         // Want to head in a straight line from _here_ to the next waypoint instead of center of loiter wp
 
         // 0 to xtrack from center of waypoint, 1 to xtrack from tangent exit location
-        if (plane.next_WP_loc.loiter_xtrack) {
+        if (plane.next_WP_loc.loiter_xtrack || plane.loiter_xtrack_forced()) {
             plane.next_WP_loc = plane.current_loc;
         }
         return true;

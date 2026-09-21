@@ -598,6 +598,10 @@ public:
     // how the leg into an AUTO loiter mission item is flown, see LoiterEntryType
     AP_Int8 loiter_entry;
 
+    // if set, always crosstrack out of an AUTO loiter from the tangent exit
+    // point, ignoring the mission item's xtrack location
+    AP_Int8 loiter_xtrack;
+
 #if AP_PLANE_SYSTEMID_ENABLED
     AP_SystemID systemid;
 #endif

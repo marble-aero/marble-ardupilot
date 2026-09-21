@@ -1291,7 +1291,14 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Description: Controls how the leg into a loiter mission item is flown in AUTO. When set to Tangential the leg is flown as a straight line from the previous waypoint to the point at which that line is tangent to the loiter circle, so the aircraft rolls onto the circle in the commanded direction instead of flying at the loiter centre and turning in. Applies to NAV_LOITER_UNLIM, NAV_LOITER_TURNS, NAV_LOITER_TIME and NAV_LOITER_TO_ALT. If the previous waypoint is not far enough outside the loiter circle for a useful tangent leg then the normal entry is flown instead.
     // @Values: 0:Direct,1:Tangential
     // @User: Standard
-    AP_GROUPINFO("LOITER_ENTRY", 42, ParametersG2, loiter_entry, 0),
+    AP_GROUPINFO("LOITER_ENTRY", 42, ParametersG2, loiter_entry, 1),
+
+    // @Param: LOITER_XTRACK
+    // @DisplayName: AUTO loiter exit crosstrack override
+    // @Description: Controls where the leg out of a loiter mission item is crosstracked from in AUTO. When 0 this is taken from each mission item, which is param4 of NAV_LOITER_TURNS, NAV_LOITER_TIME and NAV_LOITER_TO_ALT. When 1 the leg to the next waypoint always starts from the point at which the aircraft left the loiter circle, as though param4 was set on every loiter item. NAV_LOITER_UNLIM has no such option as it is never exited.
+    // @Values: 0:UseMissionItem,1:AlwaysTangentExit
+    // @User: Standard
+    AP_GROUPINFO("LOITER_XTRACK", 43, ParametersG2, loiter_xtrack, 1),
 
     AP_GROUPEND
 };

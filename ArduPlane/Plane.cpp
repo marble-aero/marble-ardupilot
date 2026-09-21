@@ -1077,6 +1077,15 @@ LoiterEntryType Plane::loiter_entry_type(void) const
     return LoiterEntryType(g2.loiter_entry.get());
 }
 
+/*
+  true when LOITER_XTRACK forces the leg out of a loiter to start from the
+  tangent exit point, overriding the mission item's param4. Limited to AUTO.
+ */
+bool Plane::loiter_xtrack_forced(void) const
+{
+    return (control_mode == &mode_auto) && (g2.loiter_xtrack == 1);
+}
+
 #if AC_PRECLAND_ENABLED
 void Plane::precland_update(void)
 {

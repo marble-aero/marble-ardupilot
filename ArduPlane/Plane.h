@@ -1114,6 +1114,7 @@ private:
     void set_flight_stage(AP_FixedWing::FlightStage fs);
     bool flight_option_enabled(FlightOptions flight_option) const;
     LoiterEntryType loiter_entry_type(void) const;
+    bool loiter_xtrack_forced(void) const;
 
     // navigation.cpp
     void loiter_angle_reset(void);
