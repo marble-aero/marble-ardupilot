@@ -107,6 +107,10 @@ QuadPlane::QuadPlane(const char *frame_str) :
     mass = frame->get_mass() * 1.5;
     frame->set_mass(mass);
 
+    // Plane ctor sized thrust_scale for stock ~2 kg. Retune for the real
+    // QuadPlane mass so forward thrust can still reach cruise airspeed.
+    thrust_scale = (mass * GRAVITY_MSS) / hover_throttle;
+
     lock_step_scheduled = true;
 }
 
