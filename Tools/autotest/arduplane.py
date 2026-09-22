@@ -2995,6 +2995,213 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
         self.progress("Returning home")
         self.fly_home_land_and_disarm(240)
 
+    def loiter_tangent_point(self, centre, leg_start, radius, clockwise=True):
+        '''return the point at which a straight leg from leg_start touches the
+        loiter circle around centre, on the side which can be flown onto
+        without reversing the turn direction'''
+        dist = self.get_distance(centre, leg_start)
+        if dist <= radius:
+            raise PreconditionFailedException("leg starts inside the loiter circle")
+        direction = 1 if clockwise else -1
+        bearing = self.get_bearing(centre, leg_start) + direction * math.degrees(math.acos(radius / dist))
+        return self.offset_location_ne(centre,
+                                       radius * math.cos(math.radians(bearing)),
+                                       radius * math.sin(math.radians(bearing)))
+
+    def leg_track_error(self, start, end, loc):
+        '''return (crosstrack, alongtrack) of loc against the line start->end'''
+        dist = self.get_distance(start, loc)
+        if dist <= 0:
+            return (0.0, 0.0)
+        delta = math.radians(self.get_bearing(start, loc) - self.get_bearing(start, end))
+        return (abs(dist * math.sin(delta)), dist * math.cos(delta))
+
+    def current_loc_from_gpi(self):
+        '''current location taken from a fresh GLOBAL_POSITION_INT'''
+        m = self.assert_receive_message('GLOBAL_POSITION_INT', timeout=5)
+        return mavutil.location(m.lat * 1e-7, m.lon * 1e-7, m.relative_alt * 1e-3, 0)
+
+    def worst_crosstrack(self, legs, stop, ignore_ends, timeout=400):
+        '''fly until stop(loc) returns true, returning the worst crosstrack
+        seen against each (start, end) leg in legs.  The first and last
+        ignore_ends metres of each leg are not counted, so that the turn onto
+        the leg and the arrival at its end do not dominate the result'''
+        worst = [0.0] * len(legs)
+        tstart = self.get_sim_time()
+        while True:
+            if self.get_sim_time_cached() - tstart > timeout:
+                raise NotAchievedException("Vehicle did not reach the end of the leg")
+            loc = self.current_loc_from_gpi()
+            if stop(loc):
+                return worst
+            for i, (start, end) in enumerate(legs):
+                (xtrack, along) = self.leg_track_error(start, end, loc)
+                leg_len = self.get_distance(start, end)
+                if along > ignore_ends and along < leg_len - ignore_ends:
+                    worst[i] = max(worst[i], xtrack)
+
+    def LoiterTangentialEntry(self):
+        '''test LOITER_ENTRY flies the leg into an AUTO loiter tangent to the circle'''
+        radius = 200
+        alt = 120
+        self.set_parameters({
+            "WP_LOITER_RAD": radius,
+            "LOITER_ENTRY": 1,
+        })
+        leg_start = self.home_relative_loc_ne(1500, 0)
+        centre = self.home_relative_loc_ne(1500, 1200)
+        self.upload_simple_relhome_mission([
+            (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
+            (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 1500, 0, alt),
+            self.create_MISSION_ITEM_INT(
+                mavutil.mavlink.MAV_CMD_NAV_LOITER_UNLIM,
+                p3=radius,
+                x=int(centre.lat * 1e7),
+                y=int(centre.lng * 1e7),
+                z=alt,
+                frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            ),
+        ])
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        # the entry leg starts when the waypoint before the loiter is reached
+        self.wait_current_waypoint(3, timeout=300)
+        tangent = self.loiter_tangent_point(centre, leg_start, radius)
+
+        (from_tangent, from_direct) = self.worst_crosstrack(
+            [(leg_start, tangent), (leg_start, centre)],
+            lambda loc: self.get_distance(centre, loc) < radius * 1.25,
+            ignore_ends=radius * 1.5,
+        )
+        self.progress("entry leg was %.0fm off the tangent line and %.0fm off the direct line" %
+                      (from_tangent, from_direct))
+        if from_tangent > 100:
+            raise NotAchievedException("Did not fly the tangent leg (%.0fm off it)" % from_tangent)
+        # a direct entry would have tracked the line to the centre instead
+        if from_direct < 100:
+            raise NotAchievedException("Flew at the loiter centre (only %.0fm off that line)" % from_direct)
+
+        self.fly_home_land_and_disarm(300)
+
+    def LoiterTangentialEntryShortLeg(self):
+        '''test a loiter entry leg which is too short falls back to a direct entry'''
+        radius = 200
+        alt = 120
+        self.set_parameters({
+            "WP_LOITER_RAD": radius,
+            "LOITER_ENTRY": 1,
+        })
+        # the waypoint before the loiter sits between 1.0 and 1.2 radii from
+        # the centre, so the vehicle is outside the circle but the tangent leg
+        # would be too short to be worth flying
+        centre = self.home_relative_loc_ne(1500, 1200)
+        self.upload_simple_relhome_mission([
+            (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
+            (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 1500, 980, alt),
+            self.create_MISSION_ITEM_INT(
+                mavutil.mavlink.MAV_CMD_NAV_LOITER_UNLIM,
+                p3=radius,
+                x=int(centre.lat * 1e7),
+                y=int(centre.lng * 1e7),
+                z=alt,
+                frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            ),
+        ])
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.wait_statustext('entry leg too short', check_context=True, timeout=300)
+        self.fly_home_land_and_disarm(300)
+
+    def LoiterTangentialEntryGuided(self):
+        '''test LOITER_ENTRY shapes a GUIDED reposition onto the loiter circle'''
+        radius = 200
+        alt = 120
+        self.set_parameters({
+            "WP_LOITER_RAD": radius,
+            "LOITER_ENTRY": 1,
+        })
+        self.takeoff(alt, mode='TAKEOFF')
+        self.change_mode('GUIDED')
+
+        # in GUIDED the entry leg starts wherever we are when the target is set
+        leg_start = self.current_loc_from_gpi()
+        centre = self.offset_location_ne(leg_start, 1500, 1200)
+        self.run_cmd_int(
+            mavutil.mavlink.MAV_CMD_DO_REPOSITION,
+            p5=int(centre.lat * 1e7),
+            p6=int(centre.lng * 1e7),
+            p7=alt,
+            frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+        )
+        tangent = self.loiter_tangent_point(centre, leg_start, radius)
+
+        (from_tangent, from_direct) = self.worst_crosstrack(
+            [(leg_start, tangent), (leg_start, centre)],
+            lambda loc: self.get_distance(centre, loc) < radius * 1.25,
+            ignore_ends=radius * 1.5,
+        )
+        self.progress("reposition was %.0fm off the tangent line and %.0fm off the direct line" %
+                      (from_tangent, from_direct))
+        if from_tangent > 100:
+            raise NotAchievedException("Did not fly the tangent leg (%.0fm off it)" % from_tangent)
+        if from_direct < 100:
+            raise NotAchievedException("Flew at the loiter centre (only %.0fm off that line)" % from_direct)
+
+        self.fly_home_land_and_disarm(300)
+
+    def LoiterXtrackOverride(self):
+        '''test LOITER_XTRACK overrides the mission item and exits on the tangent'''
+        radius = 200
+        alt = 120
+        self.set_parameters({
+            "WP_LOITER_RAD": radius,
+            "LOITER_ENTRY": 0,
+            "LOITER_XTRACK": 1,
+        })
+        centre = self.home_relative_loc_ne(1200, 800)
+        dest = self.home_relative_loc_ne(-500, 1800)
+        self.upload_simple_relhome_mission([
+            (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
+            (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 1200, 0, alt),
+            self.create_MISSION_ITEM_INT(
+                mavutil.mavlink.MAV_CMD_NAV_LOITER_TIME,
+                p1=5,   # seconds
+                p4=0,   # xtrack from the loiter centre; LOITER_XTRACK must override this
+                x=int(centre.lat * 1e7),
+                y=int(centre.lng * 1e7),
+                z=alt,
+                frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            ),
+            (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, -500, 1800, alt),
+        ])
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        # the outbound leg starts when the loiter completes
+        self.wait_current_waypoint(4, timeout=400)
+        exit_loc = self.current_loc_from_gpi()
+        self.progress("left the loiter %.0fm from its centre" % self.get_distance(centre, exit_loc))
+
+        (from_exit, from_centre) = self.worst_crosstrack(
+            [(exit_loc, dest), (centre, dest)],
+            lambda loc: self.get_distance(dest, loc) < 200,
+            ignore_ends=300,
+        )
+        self.progress("exit leg was %.0fm off the line from the exit point and %.0fm off the line from the centre" %
+                      (from_exit, from_centre))
+        if from_exit > 80:
+            raise NotAchievedException("Did not crosstrack from the exit point (%.0fm off it)" % from_exit)
+        # with the override off this mission item would have crosstracked from the centre
+        if from_centre < 80:
+            raise NotAchievedException("Crosstracked from the loiter centre (only %.0fm off that line)" % from_centre)
+
+        self.fly_home_land_and_disarm(300)
+
     def TerrainLoiterToCircle(self):
         '''loiter terrain-relative.  Switch to Circle, maintain alt'''
         self.install_terrain_handlers_context()
@@ -7976,6 +8183,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
         ret.extend(self.tests1a())
         ret.extend(self.tests1b())
         ret.extend(self.tests1c())
+        ret.extend(self.testsMarble())
         return ret
 
     def tests1a(self):
@@ -8159,6 +8367,16 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.DeadreckoningNoAirSpeed,
         ]
 
+    def testsMarble(self):
+        '''tests for behaviour added in the Marble fork, kept apart from the
+        upstream lists so that they stay easy to rebase'''
+        return [
+            self.LoiterTangentialEntry,
+            self.LoiterTangentialEntryShortLeg,
+            self.LoiterTangentialEntryGuided,
+            self.LoiterXtrackOverride,
+        ]
+
     def disabled_tests(self):
         return {
             "LandingDrift": "Flapping test. See https://github.com/ArduPilot/ardupilot/issues/20054",
@@ -8181,3 +8399,8 @@ class AutoTestPlaneTests1b(AutoTestPlane):
 class AutoTestPlaneTests1c(AutoTestPlane):
     def tests(self):
         return self.tests1c()
+
+
+class AutoTestPlaneTestsMarble(AutoTestPlane):
+    def tests(self):
+        return self.testsMarble()
