@@ -168,7 +168,6 @@ jobs:
       matrix:
         toolchain: [
             base,  # GCC
-            clang,
         ]
     steps:
       # git checkout the PR

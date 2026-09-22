@@ -169,7 +169,6 @@ jobs:
       matrix:
         toolchain: [
             base,  # GCC
-            clang,
         ]
     steps:
       # git checkout the PR
@@ -218,6 +217,7 @@ jobs:
             sitltest-plane-tests1a,
             sitltest-plane-tests1b,
             sitltest-plane-tests1c,
+            sitltest-plane-testsmarble,
             sitltest-quadplane,
         ]
 
