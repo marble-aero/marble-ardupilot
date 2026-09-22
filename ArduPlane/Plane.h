@@ -748,6 +748,15 @@ private:
 
         // current value of loiter radius in metres used by the controller
         float radius;
+
+        // true while flying the straight tangential entry leg into the loiter, see LOITER_ENTRY
+        bool tangent_entry_active;
+
+        // true once we have decided whether this loiter gets a tangential entry
+        bool tangent_entry_checked;
+
+        // the point on the loiter circle at which the entry leg is tangent to it
+        Location tangent_entry_loc;
     } loiter;
 
     // Conditional command
@@ -1104,6 +1113,8 @@ private:
     void update_flight_stage();
     void set_flight_stage(AP_FixedWing::FlightStage fs);
     bool flight_option_enabled(FlightOptions flight_option) const;
+    LoiterEntryType loiter_entry_type(void) const;
+    bool loiter_xtrack_forced(void) const;
 
     // navigation.cpp
     void loiter_angle_reset(void);
@@ -1115,6 +1126,8 @@ private:
     void calc_gndspeed_undershoot();
     void update_loiter(uint16_t radius);
     void update_loiter_update_nav(uint16_t radius);
+    void update_loiter_tangent_entry(float scaled_radius);
+    bool calc_loiter_tangent_entry(float scaled_radius);
     void update_fbwb_speed_height(void);
     void setup_turn_angle(void);
     bool reached_loiter_target(void);

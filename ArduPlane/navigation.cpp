@@ -1,6 +1,15 @@
 #include "Plane.h"
 
 /*
+  the entry leg of a tangential loiter entry only gets flown if the previous
+  waypoint is at least this multiple of the loiter radius from the loiter
+  centre. Below this the tangent leg is too short to be worth flying, and the
+  tangent angle becomes ill conditioned as the leg start approaches the circle.
+  At this ratio the leg is 0.66 radii long.
+ */
+#define LOITER_TANGENT_ENTRY_MIN_RADIUS_RATIO 1.2f
+
+/*
   reset the total loiter angle
  */
 void Plane::loiter_angle_reset(void)
@@ -9,6 +18,8 @@ void Plane::loiter_angle_reset(void)
     loiter.total_cd = 0;
     loiter.reached_target_alt = false;
     loiter.unable_to_achieve_target_alt = false;
+    loiter.tangent_entry_active = false;
+    loiter.tangent_entry_checked = false;
 }
 
 /*
@@ -340,10 +351,25 @@ void Plane::update_loiter_update_nav(uint16_t radius)
     const bool quadplane_qrtl_switch = false;
 #endif
 
+    const float scaled_radius = nav_controller->loiter_radius(radius);
+
+    update_loiter_tangent_entry(scaled_radius);
+
+    if (loiter.tangent_entry_active && !quadplane_qrtl_switch) {
+        /*
+          fly a straight leg from the previous waypoint to the point where that
+          leg is tangent to the loiter circle, so that we roll onto the circle
+          in the commanded direction rather than flying at the centre and
+          turning in
+        */
+        nav_controller->update_waypoint(prev_WP_loc, loiter.tangent_entry_loc);
+        return;
+    }
+
     if ((loiter.start_time_ms == 0 &&
          (control_mode == &mode_auto || control_mode == &mode_guided) &&
          auto_state.crosstrack &&
-         current_loc.get_distance(next_WP_loc) > 3 * nav_controller->loiter_radius(radius)) ||
+         current_loc.get_distance(next_WP_loc) > 3 * scaled_radius) ||
         quadplane_qrtl_switch) {
         /*
           if never reached loiter point and using crosstrack and somewhat far away from loiter point
@@ -357,6 +383,104 @@ void Plane::update_loiter_update_nav(uint16_t radius)
         return;
     }
     nav_controller->update_loiter(next_WP_loc, radius, loiter.direction);
+}
+
+/*
+  update the state of a tangential loiter entry. The decision to fly one is
+  taken once, on the first navigation update of the loiter command, and the
+  entry leg is flown until we pass the tangency point
+ */
+void Plane::update_loiter_tangent_entry(float scaled_radius)
+{
+    if (!loiter.tangent_entry_checked) {
+        loiter.tangent_entry_active = calc_loiter_tangent_entry(scaled_radius);
+        loiter.tangent_entry_checked = true;
+    }
+
+    if (loiter.tangent_entry_active &&
+        current_loc.past_interval_finish_line(prev_WP_loc, loiter.tangent_entry_loc)) {
+        // we have reached the tangency point, hand over to the loiter controller
+        loiter.tangent_entry_active = false;
+    }
+}
+
+/*
+  work out whether this loiter command should be entered tangentially and if so
+  fill in loiter.tangent_entry_loc with the tangency point on the loiter circle
+ */
+bool Plane::calc_loiter_tangent_entry(float scaled_radius)
+{
+    if (loiter_entry_type() != LoiterEntryType::TANGENTIAL) {
+        return false;
+    }
+
+    if (control_mode == &mode_auto) {
+        // only the loiter mission items, which are the ones that fly a circle
+        switch (mission.get_current_nav_cmd().id) {
+        case MAV_CMD_NAV_LOITER_UNLIM:
+        case MAV_CMD_NAV_LOITER_TURNS:
+        case MAV_CMD_NAV_LOITER_TIME:
+        case MAV_CMD_NAV_LOITER_TO_ALT:
+            break;
+        default:
+            return false;
+        }
+    } else if (control_mode != &mode_guided) {
+        return false;
+    }
+
+#if HAL_QUADPLANE_ENABLED
+    if (quadplane.in_vtol_auto() || quadplane.guided_mode_enabled()) {
+        // a VTOL loiter has no circle to be tangent to
+        return false;
+    }
+#endif
+
+    /*
+      auto_state.crosstrack is deliberately not checked. When it is false
+      prev_WP_loc has been set to the position the command started from, by
+      set_next_WP() in AUTO or set_guided_WP() in GUIDED, which is still a
+      valid origin for the entry leg
+     */
+    if (loiter.start_time_ms != 0) {
+        // we have already reached this loiter, so there is no leg left to fly
+        return false;
+    }
+
+    if (current_loc.get_distance(next_WP_loc) <= scaled_radius) {
+        // already inside the circle, flying back out to a tangency point would
+        // be worse than letting the loiter controller capture from here
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter: direct entry, inside circle");
+        return false;
+    }
+
+    // vector from the loiter centre to the start of the entry leg
+    const Vector2f centre_to_prev = next_WP_loc.get_distance_NE(prev_WP_loc);
+    const float leg_start_dist = centre_to_prev.length();
+
+    /*
+      the leg start has to be outside the circle by a margin. Checking the
+      radius is positive as well keeps the division below away from 0/0 if the
+      radius has not been established yet, and keeps acosf() inside its domain
+     */
+    if (!is_positive(scaled_radius) ||
+        leg_start_dist < scaled_radius * LOITER_TANGENT_ENTRY_MIN_RADIUS_RATIO) {
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter: direct entry, entry leg too short");
+        return false;
+    }
+
+    /*
+      the angle subtended at the loiter centre between the start of the entry
+      leg and the tangency point. Of the two tangency points, the one offset in
+      the direction of travel is the one the aircraft can fly onto without
+      reversing its turn
+     */
+    const float tangent_angle_deg = degrees(acosf(scaled_radius / leg_start_dist)) * loiter.direction;
+
+    loiter.tangent_entry_loc = next_WP_loc;
+    loiter.tangent_entry_loc.offset_bearing(degrees(centre_to_prev.angle()) + tangent_angle_deg, scaled_radius);
+
+    return true;
 }
 
 void Plane::update_loiter(uint16_t radius)

@@ -117,7 +117,7 @@ jobs:
           source $HOME/venv-ardupilot/bin/activate || true
           git config --global --add safe.directory /__w/ardupilot/ardupilot
           ./waf configure
-          ./waf rover
+          ./waf plane
 
       - name: test build Chibios ${{matrix.os}}.${{matrix.name}}
         if: matrix.os != 'alpine'
@@ -173,4 +173,4 @@ jobs:
           git config --global --add safe.directory ${GITHUB_WORKSPACE}
           git config --global --add safe.directory /__w/ardupilot/ardupilot
           ./waf configure
-          ./waf rover
+          ./waf plane

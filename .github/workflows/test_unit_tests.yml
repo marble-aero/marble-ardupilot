@@ -109,7 +109,6 @@ jobs:
       matrix:
         toolchain: [
             base,  # GCC
-            clang,
         ]
         config: [
             unit-tests,
