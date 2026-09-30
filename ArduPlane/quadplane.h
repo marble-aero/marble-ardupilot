@@ -285,6 +285,10 @@ private:
     void motors_output(bool run_rate_controller = true);
     void Log_Write_QControl_Tuning();
     void log_QPOS(void);
+#if HAL_LOGGING_ENABLED
+    void update_flight_phase(uint32_t now_ms);
+    bool flight_phase_transition_in_done();
+#endif
     float landing_descent_rate_ms(float height_above_ground_m);
     
     // setup correct aux channels for frame class
@@ -537,6 +541,23 @@ private:
         uint32_t last_state_change_ms;
         enum position_control_state state;
     } poscontrol;
+
+#if HAL_LOGGING_ENABLED
+    // flight phase for log analysis, see update_flight_phase()
+    enum class FlightPhase : uint8_t {
+        GROUND         = 0,
+        TAKEOFF        = 1,
+        TRANSITION_OUT = 2,
+        CRUISE         = 3,
+        TRANSITION_IN  = 4,
+        LANDING        = 5,
+    };
+    struct {
+        FlightPhase phase;
+        uint32_t last_flying_ms;
+        uint32_t last_log_ms;
+    } flight_phase;
+#endif
 
     struct {
         bool running;
