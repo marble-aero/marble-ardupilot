@@ -5896,10 +5896,11 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         self.fly_home_land_and_disarm(timeout=180)
 
-    def upload_loiter_reupload_mission(self, loiter_cmd, p1, p3=0, loiter_ne=(800, 0), alt=100):
-        '''upload a mission of takeoff, a single loiter item and a waypoint.
-        The loiter is item 2'''
-        loc = self.home_relative_loc_ne(*loiter_ne)
+    def upload_loiter_reupload_mission(self, loiter_cmd, loc, p1, p3=0, alt=100):
+        '''upload a mission of takeoff, a single loiter item at loc and a
+        waypoint.  The loiter is item 2.  loc must be computed once per test,
+        as home moves on arming and a loiter recomputed from it would count as
+        moved'''
         self.upload_simple_relhome_mission([
             (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
             self.create_MISSION_ITEM_INT(
@@ -5945,7 +5946,8 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
     def LoiterTurnsReuploadIncrease(self):
         '''test re-uploading a mission with more turns extends the active LOITER_TURNS'''
         turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
-        self.upload_loiter_reupload_mission(turns_cmd, 2, p3=100)
+        loc = self.home_relative_loc_ne(800, 0)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 2, p3=100)
         self.context_collect('STATUSTEXT')
         self.change_mode('AUTO')
         self.wait_ready_to_arm()
@@ -5953,7 +5955,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         (turns, _) = self.fly_loiter_item(
             2,
-            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, 4, p3=100),
+            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, loc, 4, p3=100),
             action_turns=1,
         )
         self.wait_statustext("Loiter turns updated to 4.00", check_context=True)
@@ -5964,7 +5966,8 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
     def LoiterTurnsReuploadDecrease(self):
         '''test re-uploading a mission with fewer turns than flown completes the active LOITER_TURNS'''
         turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
-        self.upload_loiter_reupload_mission(turns_cmd, 6, p3=100)
+        loc = self.home_relative_loc_ne(800, 0)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 6, p3=100)
         self.context_collect('STATUSTEXT')
         self.change_mode('AUTO')
         self.wait_ready_to_arm()
@@ -5972,7 +5975,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         (turns, _) = self.fly_loiter_item(
             2,
-            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, 1, p3=100),
+            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, loc, 1, p3=100),
             action_turns=2,
         )
         self.wait_statustext("Loiter turns updated to 1.00", check_context=True)
@@ -5983,7 +5986,9 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
     def LoiterTurnsReuploadMoved(self):
         '''test re-uploading a moved LOITER_TURNS does not change the active one'''
         turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
-        self.upload_loiter_reupload_mission(turns_cmd, 2, p3=100)
+        loc = self.home_relative_loc_ne(800, 0)
+        moved_loc = self.offset_location_ne(loc, 0, 300)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 2, p3=100)
         self.context_collect('STATUSTEXT')
         self.change_mode('AUTO')
         self.wait_ready_to_arm()
@@ -5991,7 +5996,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         (turns, _) = self.fly_loiter_item(
             2,
-            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, 4, p3=100, loiter_ne=(800, 300)),
+            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, moved_loc, 4, p3=100),
             action_turns=1,
         )
         if self.statustext_in_collections("Loiter turns updated"):
@@ -6004,7 +6009,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
         '''test re-uploading a mission with a new radius changes the active LOITER_TURNS circle'''
         turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
         loc = self.home_relative_loc_ne(800, 0)
-        self.upload_loiter_reupload_mission(turns_cmd, 3, p3=100)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 3, p3=100)
         self.context_collect('STATUSTEXT')
         self.change_mode('AUTO')
         self.wait_ready_to_arm()
@@ -6012,7 +6017,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         self.wait_current_waypoint(2, timeout=300)
         self.wait_circling_point_with_radius(loc, 100, epsilon=20, timeout=240)
-        self.upload_loiter_reupload_mission(turns_cmd, 3, p3=250)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 3, p3=250)
         self.wait_statustext("Loiter radius updated to 250m", check_context=True)
         # the larger circle is flown about 20m outside the commanded radius
         self.wait_circling_point_with_radius(loc, 250, epsilon=30, timeout=240)
@@ -6094,7 +6099,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
         loc = self.home_relative_loc_ne(800, 0)
         # a radius of 0 uses WP_LOITER_RAD, whose negative sign means counter-clockwise
         self.set_parameter("WP_LOITER_RAD", -150)
-        self.upload_loiter_reupload_mission(turns_cmd, 8, p3=100)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 8, p3=100)
         self.context_collect('STATUSTEXT')
         self.change_mode('AUTO')
         self.wait_ready_to_arm()
@@ -6102,7 +6107,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         self.wait_current_waypoint(2, timeout=300)
         self.wait_circling_point_with_radius(loc, 100, epsilon=20, timeout=240)
-        self.upload_loiter_reupload_mission(turns_cmd, 8, p3=0)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 8, p3=0)
         self.wait_statustext("Loiter radius change ignored, reverses direction", check_context=True)
         direction = self.loiter_turn_direction()
         if direction < 90:
@@ -6117,7 +6122,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         # with a positive WP_LOITER_RAD the same change keeps the direction, so it applies
         self.set_parameter("WP_LOITER_RAD", 150)
-        self.upload_loiter_reupload_mission(turns_cmd, 8, p3=0)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 8, p3=0)
         self.wait_statustext("Loiter radius updated to WP_LOITER_RAD", check_context=True)
         self.wait_circling_point_with_radius(loc, 150, epsilon=20, timeout=240)
         direction = self.loiter_turn_direction()
@@ -6129,7 +6134,8 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
     def LoiterTimeReupload(self):
         '''test re-uploading a mission with a longer time extends the active LOITER_TIME'''
         time_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TIME
-        self.upload_loiter_reupload_mission(time_cmd, 30)
+        loc = self.home_relative_loc_ne(800, 0)
+        self.upload_loiter_reupload_mission(time_cmd, loc, 30)
         self.context_collect('STATUSTEXT')
         self.change_mode('AUTO')
         self.wait_ready_to_arm()
@@ -6137,7 +6143,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
         (_, seconds) = self.fly_loiter_item(
             2,
-            action=lambda: self.upload_loiter_reupload_mission(time_cmd, 90),
+            action=lambda: self.upload_loiter_reupload_mission(time_cmd, loc, 90),
             action_time=40,
         )
         self.wait_statustext("Loiter time updated to 90s", check_context=True)
@@ -8490,13 +8496,6 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.AdvancedFailsafe,
             self.LOITER,
             self.MAV_CMD_NAV_LOITER_TURNS,
-            self.LoiterTurnsReuploadIncrease,
-            self.LoiterTurnsReuploadDecrease,
-            self.LoiterTurnsReuploadMoved,
-            self.LoiterTurnsReuploadRadius,
-            self.LoiterTurnsReuploadRadiusTangentialEntry,
-            self.LoiterTurnsReuploadRadiusReverse,
-            self.LoiterTimeReupload,
             self.MAV_CMD_NAV_LOITER_TO_ALT,
             self.DeepStall,
             self.WatchdogHome,
@@ -8633,6 +8632,13 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.LoiterTangentialEntryShortLeg,
             self.LoiterTangentialEntryGuided,
             self.LoiterXtrackOverride,
+            self.LoiterTurnsReuploadIncrease,
+            self.LoiterTurnsReuploadDecrease,
+            self.LoiterTurnsReuploadMoved,
+            self.LoiterTurnsReuploadRadius,
+            self.LoiterTurnsReuploadRadiusTangentialEntry,
+            self.LoiterTurnsReuploadRadiusReverse,
+            self.LoiterTimeReupload,
         ]
 
     def disabled_tests(self):
