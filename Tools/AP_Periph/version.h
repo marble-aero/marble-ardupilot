@@ -7,7 +7,7 @@
 #include "ap_version.h"
 #include <AP_HAL/AP_HAL.h>
 
-#define THISFIRMWARE "AP_Periph 4.7.0"
+#define THISFIRMWARE "MarblePeriph V4.7.0.1"
 
 // defines needed due to lack of GCS includes
 #ifndef HAVE_ENUM_FIRMWARE_VERSION_TYPE
