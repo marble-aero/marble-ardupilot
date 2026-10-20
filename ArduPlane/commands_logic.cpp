@@ -260,7 +260,7 @@ bool Plane::verify_command(const AP_Mission::Mission_Command& cmd)        // Ret
         return verify_loiter_unlim(cmd);
 
     case MAV_CMD_NAV_LOITER_TURNS:
-        return verify_loiter_turns(cmd);
+        return verify_loiter_turns();
 
     case MAV_CMD_NAV_LOITER_TIME:
         return verify_loiter_time();
@@ -453,6 +453,44 @@ void Plane::loiter_set_direction_wp(const AP_Mission::Mission_Command& cmd)
     }
 }
 
+// return the radius in metres of a LOITER_TURNS command
+static uint16_t loiter_turns_radius(const AP_Mission::Mission_Command &cmd)
+{
+    uint16_t radius = HIGHBYTE(cmd.p1);
+    if (cmd.type_specific_bits & (1U<<0)) {
+        // special storage handling allows for larger radii
+        radius *= 10;
+    }
+    return radius;
+}
+
+/*
+  re-read the active loiter command from storage after a mission change, so that
+  an uploaded change to its turns, radius or time can be applied without restarting it.
+  Returns true if the stored command is still the same command at the same location
+ */
+bool Plane::read_updated_loiter_cmd(AP_Mission::Mission_Command &cmd)
+{
+    const uint32_t change_ms = mission.last_change_time_ms();
+    if (change_ms == loiter.mission_change_ms) {
+        return false;
+    }
+    // an upload writes items one at a time, and a later write in this same
+    // millisecond would not change the timestamp, so only mark this change
+    // as handled once time has moved on
+    if (change_ms != millis()) {
+        loiter.mission_change_ms = change_ms;
+    }
+
+    const AP_Mission::Mission_Command &current = mission.get_current_nav_cmd();
+    if (!mission.read_cmd_from_storage(current.index, cmd)) {
+        return false;
+    }
+    return cmd.id == current.id &&
+           cmd.content.location.same_loc_as(current.content.location) &&
+           cmd.content.location.loiter_ccw == current.content.location.loiter_ccw;
+}
+
 void Plane::do_loiter_unlimited(const AP_Mission::Mission_Command& cmd)
 {
     Location cmdloc = cmd.content.location;
@@ -470,7 +508,10 @@ void Plane::do_loiter_turns(const AP_Mission::Mission_Command& cmd)
     const float turns = cmd.get_loiter_turns();
 
     loiter.total_cd = (uint32_t)(turns * 36000UL);
+    loiter.turns_radius = loiter_turns_radius(cmd);
+    loiter.radius_change_ignored = false;
     condition_value = 1; // used to signify primary turns goal not yet met
+    loiter.mission_change_ms = mission.last_change_time_ms();
 }
 
 void Plane::do_loiter_time(const AP_Mission::Mission_Command& cmd)
@@ -483,6 +524,7 @@ void Plane::do_loiter_time(const AP_Mission::Mission_Command& cmd)
     // we set start_time_ms when we reach the waypoint
     loiter.time_max_ms = cmd.p1 * (uint32_t)1000;     // convert sec to ms
     condition_value = 1; // used to signify primary time goal not yet met
+    loiter.mission_change_ms = mission.last_change_time_ms();
 }
 
 void Plane::do_continue_and_change_alt(const AP_Mission::Mission_Command& cmd)
@@ -709,6 +751,15 @@ bool Plane::verify_loiter_time()
     // mission radius is always aparm.loiter_radius
     update_loiter(0);
 
+    AP_Mission::Mission_Command updated;
+    if (condition_value != 0 && read_updated_loiter_cmd(updated)) {
+        const uint32_t time_max_ms = updated.p1 * (uint32_t)1000;
+        if (time_max_ms != loiter.time_max_ms) {
+            loiter.time_max_ms = time_max_ms;
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter time updated to %us", (unsigned)updated.p1);
+        }
+    }
+
     if (loiter.start_time_ms == 0) {
         if (reached_loiter_target() && loiter.sum_cd > 1) {
             // we've reached the target, start the timer
@@ -733,15 +784,46 @@ bool Plane::verify_loiter_time()
     return result;
 }
 
-bool Plane::verify_loiter_turns(const AP_Mission::Mission_Command &cmd)
+bool Plane::verify_loiter_turns()
 {
     bool result = false;
-    uint16_t radius = HIGHBYTE(cmd.p1);
-    if (cmd.type_specific_bits & (1U<<0)) {
-        // special storage handling allows for larger radii
-        radius *= 10;
+
+    AP_Mission::Mission_Command updated;
+    if (condition_value != 0 && read_updated_loiter_cmd(updated)) {
+        const float turns = updated.get_loiter_turns();
+        const int32_t total_cd = (uint32_t)(turns * 36000UL);
+        if (total_cd != loiter.total_cd) {
+            loiter.total_cd = total_cd;
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter turns updated to %.2f", turns);
+        }
+        const uint16_t radius = loiter_turns_radius(updated);
+        // a radius of 1 or less uses WP_LOITER_RAD, and update_loiter() then
+        // takes the direction from the sign of WP_LOITER_RAD
+        const int8_t default_direction = (next_WP_loc.loiter_ccw || aparm.loiter_radius < 0) ? -1 : 1;
+        if (radius == loiter.turns_radius) {
+            loiter.radius_change_ignored = false;
+        } else if (radius <= 1 && default_direction != loiter.direction) {
+            // later writes in the same upload re-read this command, only warn once
+            if (!loiter.radius_change_ignored) {
+                loiter.radius_change_ignored = true;
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Loiter radius change ignored, reverses direction");
+            }
+        } else {
+            loiter.turns_radius = radius;
+            loiter.radius_change_ignored = false;
+            if (loiter.tangent_entry_active) {
+                // the entry leg is aimed at the tangency point on the old circle
+                loiter.tangent_entry_checked = false;
+            }
+            if (radius <= 1) {
+                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter radius updated to WP_LOITER_RAD");
+            } else {
+                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Loiter radius updated to %um", (unsigned)radius);
+            }
+        }
     }
-    update_loiter(radius);
+
+    update_loiter(loiter.turns_radius);
 
     // LOITER_TURNS makes no sense as VTOL
     auto_state.vtol_loiter = false;

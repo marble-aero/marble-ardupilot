@@ -5772,6 +5772,11 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
     def MAV_CMD_NAV_LOITER_TURNS(self, target_system=1, target_component=1):
         '''test MAV_CMD_NAV_LOITER_TURNS mission item'''
+        # the circling checks below assume the upstream loiter entry and exit
+        self.set_parameters({
+            "LOITER_ENTRY": 0,
+            "LOITER_XTRACK": 0,
+        })
         alt = 100
         seq = 0
         items = []
@@ -5895,6 +5900,263 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.set_current_waypoint(self.current_waypoint()+1)
 
         self.fly_home_land_and_disarm(timeout=180)
+
+    def upload_loiter_reupload_mission(self, loiter_cmd, loc, p1, p3=0, alt=100):
+        '''upload a mission of takeoff, a single loiter item at loc and a
+        waypoint.  The loiter is item 2.  loc must be computed once per test,
+        as home moves on arming and a loiter recomputed from it would count as
+        moved'''
+        self.upload_simple_relhome_mission([
+            (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
+            self.create_MISSION_ITEM_INT(
+                loiter_cmd,
+                p1=p1,
+                p3=p3,
+                x=int(loc.lat * 1e7),
+                y=int(loc.lng * 1e7),
+                z=alt,
+                frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            ),
+            (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, alt),
+        ])
+
+    def fly_loiter_item(self, seq, action=None, action_turns=None, action_time=None, timeout=600):
+        '''fly while mission item seq is current, calling action once after
+        action_turns turns or action_time seconds in the item.  Returns
+        (turns, seconds) spent in the item'''
+        self.wait_current_waypoint(seq, timeout=300)
+        tstart = self.get_sim_time()
+        last_heading = self.get_heading()
+        total_deg = 0
+        done_action = action is None
+        while self.mav.waypoint_current() == seq:
+            now = self.get_sim_time_cached()
+            if now - tstart > timeout:
+                raise NotAchievedException("Did not leave loiter item %u" % seq)
+            heading = self.get_heading()
+            total_deg += abs(self.heading_delta(heading, last_heading))
+            last_heading = heading
+            turns = total_deg / 360.0
+            if not done_action:
+                if ((action_turns is not None and turns >= action_turns) or
+                        (action_time is not None and now - tstart >= action_time)):
+                    self.progress("Changing loiter after %.1f turns, %.0fs" % (turns, now - tstart))
+                    action()
+                    done_action = True
+        turns = total_deg / 360.0
+        seconds = self.get_sim_time_cached() - tstart
+        self.progress("Spent %.1f turns, %.0fs in loiter item" % (turns, seconds))
+        return (turns, seconds)
+
+    def LoiterTurnsReuploadIncrease(self):
+        '''test re-uploading a mission with more turns extends the active LOITER_TURNS'''
+        turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
+        loc = self.home_relative_loc_ne(800, 0)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 2, p3=100)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        (turns, _) = self.fly_loiter_item(
+            2,
+            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, loc, 4, p3=100),
+            action_turns=1,
+        )
+        self.wait_statustext("Loiter turns updated to 4.00", check_context=True)
+        if turns < 3.5 or turns > 5.5:
+            raise NotAchievedException("Expected about 4 turns, got %.1f" % turns)
+        self.fly_home_land_and_disarm(240)
+
+    def LoiterTurnsReuploadDecrease(self):
+        '''test re-uploading a mission with fewer turns than flown completes the active LOITER_TURNS'''
+        turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
+        loc = self.home_relative_loc_ne(800, 0)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 6, p3=100)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        (turns, _) = self.fly_loiter_item(
+            2,
+            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, loc, 1, p3=100),
+            action_turns=2,
+        )
+        self.wait_statustext("Loiter turns updated to 1.00", check_context=True)
+        if turns > 3.5:
+            raise NotAchievedException("Expected loiter to end soon after 2 turns, got %.1f" % turns)
+        self.fly_home_land_and_disarm(240)
+
+    def LoiterTurnsReuploadMoved(self):
+        '''test re-uploading a moved LOITER_TURNS does not change the active one'''
+        turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
+        loc = self.home_relative_loc_ne(800, 0)
+        moved_loc = self.offset_location_ne(loc, 0, 300)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 2, p3=100)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        (turns, _) = self.fly_loiter_item(
+            2,
+            action=lambda: self.upload_loiter_reupload_mission(turns_cmd, moved_loc, 4, p3=100),
+            action_turns=1,
+        )
+        if self.statustext_in_collections("Loiter turns updated"):
+            raise NotAchievedException("Moved loiter should not have been updated")
+        if turns > 3.2:
+            raise NotAchievedException("Expected about 2 turns, got %.1f" % turns)
+        self.fly_home_land_and_disarm(240)
+
+    def LoiterTurnsReuploadRadius(self):
+        '''test re-uploading a mission with a new radius changes the active LOITER_TURNS circle'''
+        turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
+        loc = self.home_relative_loc_ne(800, 0)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 3, p3=100)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        self.wait_current_waypoint(2, timeout=300)
+        self.wait_circling_point_with_radius(loc, 100, epsilon=20, timeout=240)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 3, p3=250)
+        self.wait_statustext("Loiter radius updated to 250m", check_context=True)
+        # the larger circle is flown about 20m outside the commanded radius
+        self.wait_circling_point_with_radius(loc, 250, epsilon=30, timeout=240)
+        self.assert_current_waypoint(2)
+        if self.statustext_in_collections("Loiter turns updated"):
+            raise NotAchievedException("Turns should not have changed")
+        self.wait_current_waypoint(3, timeout=600)
+        self.fly_home_land_and_disarm(240)
+
+    def LoiterTurnsReuploadRadiusTangentialEntry(self):
+        '''test a radius change during a tangential entry leg re-aims it at the new circle'''
+        old_radius = 200
+        new_radius = 500
+        alt = 120
+        self.set_parameters({
+            "WP_LOITER_RAD": old_radius,
+            "LOITER_ENTRY": 1,
+        })
+        leg_start = self.home_relative_loc_ne(1500, 0)
+        centre = self.home_relative_loc_ne(1500, 1200)
+
+        def upload(radius):
+            self.upload_simple_relhome_mission([
+                (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
+                (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 1500, 0, alt),
+                self.create_MISSION_ITEM_INT(
+                    mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS,
+                    p1=1,
+                    p3=radius,
+                    x=int(centre.lat * 1e7),
+                    y=int(centre.lng * 1e7),
+                    z=alt,
+                    frame=mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                ),
+            ])
+
+        upload(old_radius)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        # the entry leg starts when the waypoint before the loiter is reached
+        self.wait_current_waypoint(3, timeout=300)
+        upload(new_radius)
+        self.wait_statustext("Loiter radius updated to %um" % new_radius, check_context=True)
+
+        new_tangent = self.loiter_tangent_point(centre, leg_start, new_radius)
+        old_tangent = self.loiter_tangent_point(centre, leg_start, old_radius)
+        (from_new, from_old) = self.worst_crosstrack(
+            [(leg_start, new_tangent), (leg_start, old_tangent)],
+            lambda loc: self.get_distance(centre, loc) < new_radius * 1.25,
+            ignore_ends=200,
+        )
+        self.progress("entry leg was %.0fm off the new tangent line and %.0fm off the old one" %
+                      (from_new, from_old))
+        if from_new > 50:
+            raise NotAchievedException("Did not fly the new tangent leg (%.0fm off it)" % from_new)
+        if from_old < 80:
+            raise NotAchievedException("Still flew the old tangent leg (only %.0fm off it)" % from_old)
+
+        self.fly_home_land_and_disarm(300)
+
+    def loiter_turn_direction(self, duration=15):
+        '''return the signed heading change in degrees over duration seconds,
+        positive for clockwise'''
+        tstart = self.get_sim_time()
+        last_heading = self.get_heading()
+        total = 0
+        while self.get_sim_time_cached() - tstart < duration:
+            heading = self.get_heading()
+            total += ((heading - last_heading + 540) % 360) - 180
+            last_heading = heading
+        return total
+
+    def LoiterTurnsReuploadRadiusReverse(self):
+        '''test a re-uploaded radius which would reverse the active LOITER_TURNS is ignored'''
+        turns_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS
+        loc = self.home_relative_loc_ne(800, 0)
+        # a radius of 0 uses WP_LOITER_RAD, whose negative sign means counter-clockwise
+        self.set_parameter("WP_LOITER_RAD", -150)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 8, p3=100)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        self.wait_current_waypoint(2, timeout=300)
+        self.wait_circling_point_with_radius(loc, 100, epsilon=20, timeout=240)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 8, p3=0)
+        self.wait_statustext("Loiter radius change ignored, reverses direction", check_context=True)
+        direction = self.loiter_turn_direction()
+        if direction < 90:
+            raise NotAchievedException("Expected to keep turning clockwise, turned %.0f deg" % direction)
+        self.wait_circling_point_with_radius(loc, 100, epsilon=20, timeout=120)
+        warnings = [m for m in self.context_collection('STATUSTEXT')
+                    if m.text.startswith("Loiter radius change ignored")]
+        if len(warnings) != 1:
+            raise NotAchievedException("Expected one ignored warning, got %u" % len(warnings))
+        if self.statustext_in_collections("Loiter radius updated"):
+            raise NotAchievedException("Radius should not have been updated")
+
+        # with a positive WP_LOITER_RAD the same change keeps the direction, so it applies
+        self.set_parameter("WP_LOITER_RAD", 150)
+        self.upload_loiter_reupload_mission(turns_cmd, loc, 8, p3=0)
+        self.wait_statustext("Loiter radius updated to WP_LOITER_RAD", check_context=True)
+        self.wait_circling_point_with_radius(loc, 150, epsilon=20, timeout=240)
+        direction = self.loiter_turn_direction()
+        if direction < 90:
+            raise NotAchievedException("Expected to keep turning clockwise, turned %.0f deg" % direction)
+        self.wait_current_waypoint(3, timeout=900)
+        self.fly_home_land_and_disarm(240)
+
+    def LoiterTimeReupload(self):
+        '''test re-uploading a mission with a longer time extends the active LOITER_TIME'''
+        time_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TIME
+        loc = self.home_relative_loc_ne(800, 0)
+        self.upload_loiter_reupload_mission(time_cmd, loc, 30)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        (_, seconds) = self.fly_loiter_item(
+            2,
+            action=lambda: self.upload_loiter_reupload_mission(time_cmd, loc, 90),
+            action_time=40,
+        )
+        self.wait_statustext("Loiter time updated to 90s", check_context=True)
+        # time in the item includes reaching the circle and the heading exit,
+        # the edit is made after the 30s timer has started
+        if seconds < 100 or seconds > 150:
+            raise NotAchievedException("Expected about 90s in loiter, got %.0fs" % seconds)
+        self.fly_home_land_and_disarm(240)
 
     def MidAirDisarmDisallowed(self):
         '''Ensure mid-air disarm is not possible'''
@@ -8375,6 +8637,13 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.LoiterTangentialEntryShortLeg,
             self.LoiterTangentialEntryGuided,
             self.LoiterXtrackOverride,
+            self.LoiterTurnsReuploadIncrease,
+            self.LoiterTurnsReuploadDecrease,
+            self.LoiterTurnsReuploadMoved,
+            self.LoiterTurnsReuploadRadius,
+            self.LoiterTurnsReuploadRadiusTangentialEntry,
+            self.LoiterTurnsReuploadRadiusReverse,
+            self.LoiterTimeReupload,
         ]
 
     def disabled_tests(self):
