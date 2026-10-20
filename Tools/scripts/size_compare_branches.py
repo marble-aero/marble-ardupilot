@@ -215,6 +215,7 @@ class SizeCompareBranches(BuildScriptBase):
             'MatekL431-Rangefinder',  # uses USE_BOOTLOADER_FROM_BOARD
             'MatekL431-RC',  # uses USE_BOOTLOADER_FROM_BOARD
             'MatekL431-Serial',  # uses USE_BOOTLOADER_FROM_BOARD
+            'MatekL431-Temp',  # uses USE_BOOTLOADER_FROM_BOARD
         ])
 
         for board_name in self.board:
