@@ -2862,6 +2862,13 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
         '''method for the FenceRelative test to call'''
         return 'QLOITER'
 
+    def FenceRelative_params(self):
+        '''the cliff tests wait to reach a GUIDED reposition target, which a
+        tangential loiter entry never flies over'''
+        ret = super(AutoTestQuadPlane, self).FenceRelative_params()
+        ret["LOITER_ENTRY"] = 0
+        return ret
+
     def TerrainAvoidApplet(self):
         '''Terrain Avoidance with CMTC'''
         self.start_subtest("Terrain Avoidance Load and Start")

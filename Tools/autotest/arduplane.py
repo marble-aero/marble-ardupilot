@@ -5772,6 +5772,11 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
 
     def MAV_CMD_NAV_LOITER_TURNS(self, target_system=1, target_component=1):
         '''test MAV_CMD_NAV_LOITER_TURNS mission item'''
+        # the circling checks below assume the upstream loiter entry and exit
+        self.set_parameters({
+            "LOITER_ENTRY": 0,
+            "LOITER_XTRACK": 0,
+        })
         alt = 100
         seq = 0
         items = []
