@@ -1808,6 +1808,8 @@ void QuadPlane::update(void)
     }
 
 #if HAL_LOGGING_ENABLED
+    update_flight_phase(now);
+
     // motors logging
     if (motors->armed()) {
         const bool motors_active = in_vtol_mode() || assisted_flight;
@@ -2289,6 +2291,115 @@ void QuadPlane::log_QPOS(void)
                                 poscontrol.target_speed_ms,
                                 poscontrol.target_accel_mss,
                                 poscontrol.overshoot);
+}
+
+/*
+  return true once a transition from fixed wing to VTOL has finished
+  and the aircraft is flying within the limits of the VTOL controller
+ */
+bool QuadPlane::flight_phase_transition_in_done()
+{
+    if (!in_vtol_mode()) {
+        return false;
+    }
+    if (in_vtol_land_approach() || in_vtol_land_descent()) {
+        switch (poscontrol.get_state()) {
+        case QPOS_NONE:
+        case QPOS_POSITION1:
+            break;
+        case QPOS_APPROACH:
+        case QPOS_AIRBRAKE:
+            return false;
+        default:
+            return true;
+        }
+    }
+    // same speed threshold as POSITION1 uses for reached_wp_speed. The
+    // flag itself is not used as it is also set on large yaw errors
+    const float wp_speed_ms = MAX(1.0, wp_nav->get_default_speed_NE_ms());
+    return landing_closing_velocity_NE_ms().length_squared() < sq(wp_speed_ms);
+}
+
+/*
+  update and log the flight phase: GROUND, TAKEOFF, TRANSITION_OUT,
+  CRUISE, TRANSITION_IN and LANDING. Logged on change and at 1Hz
+ */
+void QuadPlane::update_flight_phase(uint32_t now_ms)
+{
+    const MAV_VTOL_STATE vtol_state = transition->get_mav_vtol_state();
+    const bool leaving_vtol = (vtol_state == MAV_VTOL_STATE_TRANSITION_TO_FW) || (vtol_state == MAV_VTOL_STATE_FW);
+    const bool entering_vtol = in_vtol_mode() || (vtol_state == MAV_VTOL_STATE_TRANSITION_TO_MC);
+    FlightPhase phase = flight_phase.phase;
+
+    if (plane.is_flying()) {
+        flight_phase.last_flying_ms = now_ms;
+    }
+
+    if (!plane.arming.is_armed_and_safety_off()) {
+        phase = FlightPhase::GROUND;
+    } else if (phase == FlightPhase::GROUND) {
+        if (plane.is_flying()) {
+            phase = FlightPhase::TAKEOFF;
+        }
+    } else if (now_ms - flight_phase.last_flying_ms > 5000) {
+        // is_flying() can drop out briefly at takeoff and in LAND_FINAL before touchdown
+        phase = FlightPhase::GROUND;
+    } else if (plane.is_flying()) {
+        switch (phase) {
+        case FlightPhase::GROUND:
+            break;
+        case FlightPhase::TAKEOFF:
+            if (vtol_state == MAV_VTOL_STATE_TRANSITION_TO_FW) {
+                phase = FlightPhase::TRANSITION_OUT;
+            } else if (vtol_state == MAV_VTOL_STATE_FW) {
+                phase = FlightPhase::CRUISE;
+            } else if (in_vtol_land_sequence() || plane.control_mode == &plane.mode_qland) {
+                phase = FlightPhase::LANDING;
+            }
+            break;
+        case FlightPhase::TRANSITION_OUT:
+            if (vtol_state == MAV_VTOL_STATE_FW) {
+                phase = FlightPhase::CRUISE;
+            } else if (entering_vtol) {
+                phase = FlightPhase::TRANSITION_IN;
+            }
+            break;
+        case FlightPhase::CRUISE:
+            // Q_ASSIST reports TRANSITION_TO_FW and stays in CRUISE
+            if (entering_vtol) {
+                phase = FlightPhase::TRANSITION_IN;
+            }
+            break;
+        case FlightPhase::TRANSITION_IN:
+            if (leaving_vtol) {
+                phase = FlightPhase::TRANSITION_OUT;
+            } else if (flight_phase_transition_in_done()) {
+                phase = FlightPhase::LANDING;
+            }
+            break;
+        case FlightPhase::LANDING:
+            if (leaving_vtol) {
+                phase = FlightPhase::TRANSITION_OUT;
+            }
+            break;
+        }
+    }
+
+    const bool changed = phase != flight_phase.phase;
+    flight_phase.phase = phase;
+    if (!changed && now_ms - flight_phase.last_log_ms < 1000) {
+        return;
+    }
+    flight_phase.last_log_ms = now_ms;
+
+// @LoggerMessage: FPHS
+// @Description: Quadplane flight phase, logged on change and at 1Hz
+// @Field: TimeUS: Time since system startup
+// @Field: Phase: Flight phase
+// @FieldValueEnum: Phase: QuadPlane::FlightPhase
+    AP::logger().Write("FPHS", "TimeUS,Phase", "s-", "F-", "QB",
+                       AP_HAL::micros64(),
+                       uint8_t(phase));
 }
 #endif
 
