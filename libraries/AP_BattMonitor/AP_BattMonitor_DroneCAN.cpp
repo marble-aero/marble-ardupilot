@@ -12,6 +12,7 @@
 #include <AP_Math/AP_Math.h>
 #include <AP_DroneCAN/AP_DroneCAN.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
+#include <AP_Logger/AP_Logger.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -175,6 +176,37 @@ void AP_BattMonitor_DroneCAN::handle_battery_info_aux(const ardupilot_equipment_
 
     _has_cell_voltages = true;
     _has_battery_info_aux = true;
+
+#if HAL_LOGGING_ENABLED
+// @LoggerMessage: BAUX
+// @Description: DroneCAN BatteryInfoAux information
+// @Field: TimeUS: Time since system startup
+// @Field: Inst: battery instance number
+// @Field: Node: CAN node ID of the battery
+// @Field: BId: battery ID reported in the message
+// @Field: Cyc: number of charge/discharge cycles
+// @Field: OvDis: number of times the battery was discharged over the rated capacity
+// @Field: MaxCurr: max instantaneous current draw since last message
+// @Field: NomVolt: nominal voltage of the battery pack
+// @Field: PwrOff: power off event imminent
+// @Field: NCell: number of cells reported
+    AP::logger().WriteStreaming(
+        "BAUX",
+        "TimeUS,Inst,Node,BId,Cyc,OvDis,MaxCurr,NomVolt,PwrOff,NCell",
+        "s#----Av--",
+        "F-----00--",
+        "QBBBHHffBB",
+        AP_HAL::micros64(),
+        _instance,
+        _node_id,
+        msg.battery_id,
+        msg.cycle_count,
+        msg.over_discharge_count,
+        msg.max_current,
+        msg.nominal_voltage,
+        msg.is_powering_off,
+        msg.voltage_cell.len);
+#endif
 }
 
 void AP_BattMonitor_DroneCAN::handle_mppt_stream(const mppt_Stream &msg)
