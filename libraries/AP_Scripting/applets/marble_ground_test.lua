@@ -63,7 +63,7 @@ local SECTION_KEYS = {
 -- transition test targets and timings, and the phases it steps through in order
 local TR = {
   LIFT_RPM = 14000,
-  CRUISE_RPM = 10000,
+  CRUISE_RPM = 9000,
   CRUISE_LOW_RPM = 7500,
   LIFT_HOLD_MS = 20000,    -- lift alone at LIFT_RPM before the cruise motor starts
   CRUISE_LEAD_MS = 1000,   -- cruise at CRUISE_RPM before the lift ramps down

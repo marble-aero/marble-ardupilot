@@ -13,7 +13,7 @@ the hold.
 | 2 | Shared lift motors | Drives Motor1-4 on one PWM until their mean is 13000 RPM, then holds for 90 s and records the hottest lift ESC 45, 60 and 90 s after reaching the target |
 | 3 | Cruise motor max | Ramps the Throttle output to `GT_THR_PCT` (80%) of the DShot range, then holds for 3 s |
 | 4 | Cruise motor sustained | Drives the Throttle output to 7800 RPM in a closed loop, then holds for 180 s |
-| 5 | Transition | Takeoff on the lift motors at 14000 RPM, hands over to the cruise motor at 10000 RPM, runs the cruise motor alone at 7500 RPM for 60 s, then lands back on the lift motors, see [Transition test](#transition-test) |
+| 5 | Transition | Takeoff on the lift motors at 14000 RPM, hands over to the cruise motor at 9000 RPM, runs the cruise motor alone at 7500 RPM for 60 s, then lands back on the lift motors, see [Transition test](#transition-test) |
 
 The targets and hold times are fixed by the Control ground test. The closed
 loop tests use an RPM loop gain of 0.02 PWM per second for each RPM of error,
@@ -73,8 +73,8 @@ The script steps through these phases and sends a GCS message at each step:
 | Phase | Lift motors | Cruise motor | Moves on when |
 |---|---|---|---|
 | 1 Lift up | Closed loop to 14000 RPM | Off | Lift reaches 14000 RPM |
-| 2 Takeoff | Held at 14000 RPM | Off for the first 20 s, then closed loop to 10000 RPM | Cruise has been at 10000 RPM for 1 s |
-| 3 Lift down | Ramps linearly to off over 10 s | Held at 10000 RPM until 5 s after reaching it, then closed loop to 7500 RPM | Lift is off and cruise reaches 7500 RPM |
+| 2 Takeoff | Held at 14000 RPM | Off for the first 20 s, then closed loop to 9000 RPM | Cruise has been at 9000 RPM for 1 s |
+| 3 Lift down | Ramps linearly to off over 10 s | Held at 9000 RPM until 5 s after reaching it, then closed loop to 7500 RPM | Lift is off and cruise reaches 7500 RPM |
 | 4 Cruise | Off | Held at 7500 RPM for 60 s | The hold ends, still in MANUAL |
 | 5 Landing | Ramps linearly over 10 s to the PWM that held 14000 RPM in takeoff | Ramps linearly to off over the same 10 s | Both ramps end |
 | 6 Landing hold | Closed loop at 14000 RPM, held 15 s from reaching it | Off | The hold ends |
