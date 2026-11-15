@@ -134,12 +134,12 @@ The script is not the only safety layer.
 
 `GTRS` is logged once per result. `Key` is the Control ground test field key,
 for example `individual_lift_motor.front_left.rcout` or
-`shared_lift_motor.temp_45s.result`. Means are taken over the hold. A few keys
-have no Control field yet:
-
-- `individual_lift_motor.<row>.esc_current_a`, the tested ESC's own current
-  next to the battery current in `current_a`
-- `shared_lift_motor.starting_esc_temp_range.min` and `.max`
+`shared_lift_motor.temp_45s.result`. Means are taken over the hold. A range is
+logged as its field key plus `.min` and `.max`, as
+`shared_lift_motor.starting_esc_temp_range.result.min` and `.max`, which Control
+fills into the one text field. `individual_lift_motor.<row>.esc_current_a`, the
+tested ESC's own current next to the battery current in `current_a`, has no
+Control field yet.
 
 The transition test logs `transition_check.lift_esc_max_temp.result` and
 `transition_check.cruise_esc_max_temp.result`, the hottest lift and cruise ESC over

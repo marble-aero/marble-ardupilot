@@ -560,8 +560,8 @@ local function start(test)
     local lo = min_temp(chans)
     local hi = max_temp(chans)
     if lo ~= nil and hi ~= nil then
-      log_result("starting_esc_temp_range.min", lo)
-      log_result("starting_esc_temp_range.max", hi)
+      log_result("starting_esc_temp_range.result.min", lo)
+      log_result("starting_esc_temp_range.result.max", hi)
       send(MAV_SEVERITY.INFO, "starting ESC temps %.0f-%.0fC", lo, hi)
     end
     log_result("battery_starting_voltage.result", battery_voltage())
