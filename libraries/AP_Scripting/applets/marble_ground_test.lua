@@ -57,7 +57,7 @@ local SECTION_KEYS = {
   [TEST.SHARED_LIFT] = "shared_lift_motor",
   [TEST.CRUISE_MAX] = "cruise_motor_max",
   [TEST.CRUISE_SUSTAINED] = "cruise_motor_sustained",
-  [TEST.TRANSITION] = "transition",
+  [TEST.TRANSITION] = "transition_check",
 }
 
 -- transition test targets and timings, and the phases it steps through in order

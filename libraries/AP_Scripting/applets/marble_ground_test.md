@@ -141,8 +141,8 @@ have no Control field yet:
   next to the battery current in `current_a`
 - `shared_lift_motor.starting_esc_temp_range.min` and `.max`
 
-The transition test logs `transition.lift_esc_max_temp.result` and
-`transition.cruise_esc_max_temp.result`, the hottest lift and cruise ESC over
+The transition test logs `transition_check.lift_esc_max_temp.result` and
+`transition_check.cruise_esc_max_temp.result`, the hottest lift and cruise ESC over
 the whole test.
 
 An aborted run logs a `GTRS` row whose `Key` starts with `abort:`.
