@@ -145,7 +145,7 @@ The transition test logs `transition_check.lift_esc_max_temp.result` and
 `transition_check.cruise_esc_max_temp.result`, the hottest lift and cruise ESC over
 the whole test.
 
-An aborted run logs a `GTRS` row whose `Key` starts with `abort:`.
+A run that ends normally logs a `GTRS` row with `Key` `complete`, and an aborted run, a script error included, one whose `Key` starts with `abort:`. Control fills only runs with `complete`, so a run cut short by a power loss is never taken as finished.
 
 `GTST` logs the run at 10 Hz:
 

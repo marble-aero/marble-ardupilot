@@ -923,6 +923,7 @@ local function step_states(t, dt)
         finish("ramped down after abort")
       else
         send(MAV_SEVERITY.INFO, "%s complete", test_name(run.test))
+        logger:write("GTRS", "Tst,Key,Val", "BZf", run.test, "complete", 0)
         finish("test complete")
       end
     end
@@ -1059,6 +1060,9 @@ local function protected_update()
   end
   gcs:send_text(MAV_SEVERITY.CRITICAL, "GT: script error " .. tostring(err))
   if state ~= STATE.IDLE then
+    if run then
+      logger:write("GTRS", "Tst,Key,Val", "BZf", run.test, "abort: script error", 0)
+    end
     finish(nil)
   end
   switch_was_high = true
