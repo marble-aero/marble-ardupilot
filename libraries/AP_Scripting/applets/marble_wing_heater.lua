@@ -7,8 +7,7 @@
 
   WHT_MODE 1 cycles the heater WHT_ON_S on and WHT_OFF_S off, WHT_MODE 0 keeps
   it off. Every parameter is read each loop, so a parameter write from the
-  ground takes effect at once. The heater runs armed or disarmed, but while
-  disarmed it stops after WHT_DISARM_MIN minutes and WHT_MODE is set back to 0.
+  ground takes effect at once. The heater runs armed or disarmed.
 
   The on command is an override that lapses after 300 ms, after which the
   output falls back to SERVOn_TRIM, so if the script stops for any reason the
@@ -29,7 +28,7 @@ local MODE_CYCLE = 1
 local MAV_SEVERITY_WARNING = 4
 local MAV_SEVERITY_INFO = 6
 
-assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 8), "WHT: could not add param table")
+assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 5), "WHT: could not add param table")
 
 local function bind_add_param(name, idx, default_value)
   assert(param:add_param(PARAM_TABLE_KEY, idx, name, default_value), string.format("WHT: could not add %s", name))
@@ -50,7 +49,7 @@ local WHT_MODE = bind_add_param("MODE", 1, 0)
 --[[
   // @Param: WHT_ON_S
   // @DisplayName: Wing heater on time
-  // @Description: Time the heater is on in each cycle, capped at WHT_ON_MAX
+  // @Description: Time the heater is on in each cycle, 0 keeps it off
   // @Range: 0 600
   // @Units: s
   // @User: Standard
@@ -60,42 +59,12 @@ local WHT_ON_S = bind_add_param("ON_S", 2, 10)
 --[[
   // @Param: WHT_OFF_S
   // @DisplayName: Wing heater off time
-  // @Description: Time the heater is off in each cycle, never less than WHT_OFF_MIN
+  // @Description: Time the heater is off in each cycle
   // @Range: 0 600
   // @Units: s
   // @User: Standard
 --]]
 local WHT_OFF_S = bind_add_param("OFF_S", 3, 20)
-
---[[
-  // @Param: WHT_ON_MAX
-  // @DisplayName: Wing heater on time limit
-  // @Description: Longest the heater may stay on in one cycle, whatever WHT_ON_S says
-  // @Range: 1 600
-  // @Units: s
-  // @User: Advanced
---]]
-local WHT_ON_MAX = bind_add_param("ON_MAX", 4, 15)
-
---[[
-  // @Param: WHT_OFF_MIN
-  // @DisplayName: Wing heater off time minimum
-  // @Description: Shortest the heater may stay off in one cycle, whatever WHT_OFF_S says
-  // @Range: 1 600
-  // @Units: s
-  // @User: Advanced
---]]
-local WHT_OFF_MIN = bind_add_param("OFF_MIN", 5, 10)
-
---[[
-  // @Param: WHT_DISARM_MIN
-  // @DisplayName: Wing heater disarmed time limit
-  // @Description: Minutes the heater may cycle while disarmed before WHT_MODE is set to 0, 0 for no limit
-  // @Range: 0 120
-  // @Units: min
-  // @User: Standard
---]]
-local WHT_DISARM_MIN = bind_add_param("DISARM_MIN", 6, 10)
 
 --[[
   // @Param: WHT_SCR_OUT
@@ -104,7 +73,7 @@ local WHT_DISARM_MIN = bind_add_param("DISARM_MIN", 6, 10)
   // @Range: 1 16
   // @User: Advanced
 --]]
-local WHT_SCR_OUT = bind_add_param("SCR_OUT", 7, 1)
+local WHT_SCR_OUT = bind_add_param("SCR_OUT", 4, 1)
 
 --[[
   // @Param: WHT_PWM_ON
@@ -114,7 +83,7 @@ local WHT_SCR_OUT = bind_add_param("SCR_OUT", 7, 1)
   // @Units: PWM
   // @User: Advanced
 --]]
-local WHT_PWM_ON = bind_add_param("PWM_ON", 8, 2000)
+local WHT_PWM_ON = bind_add_param("PWM_ON", 5, 2000)
 
 local function send(severity, fmt, ...)
   gcs:send_text(severity, "WHT: " .. string.format(fmt, ...))
@@ -129,16 +98,15 @@ local function output_function()
 end
 
 local function on_ms()
-  return math.max(0, math.min(WHT_ON_S:get(), WHT_ON_MAX:get())) * 1000
+  return math.max(0, WHT_ON_S:get()) * 1000
 end
 
 local function off_ms()
-  return math.max(WHT_OFF_S:get(), WHT_OFF_MIN:get()) * 1000
+  return math.max(0, WHT_OFF_S:get()) * 1000
 end
 
 local heater_on = false
 local phase_start_ms = 0
-local disarmed_since_ms = nil
 local last_mode = MODE_OFF
 local last_report_ms = 0
 local cleared_functions = {}
@@ -169,18 +137,6 @@ local function set_heater(on, t)
   end
 end
 
-local function disarm_limit_reached(t)
-  if arming:is_armed() then
-    disarmed_since_ms = nil
-    return false
-  end
-  if disarmed_since_ms == nil then
-    disarmed_since_ms = t
-  end
-  local limit_min = WHT_DISARM_MIN:get()
-  return limit_min > 0 and t - disarmed_since_ms >= limit_min * 60000
-end
-
 local function report(t)
   if t - last_report_ms < REPORT_INTERVAL_MS then
     return
@@ -202,7 +158,6 @@ local function update()
       send(MAV_SEVERITY_INFO, "cycling %.0fs on, %.0fs off", on_ms() / 1000, off_ms() / 1000)
       heater_on = false
       set_heater(true, t)
-      disarmed_since_ms = nil
     else
       send(MAV_SEVERITY_INFO, "off")
     end
@@ -211,11 +166,6 @@ local function update()
 
   if mode ~= MODE_CYCLE then
     set_heater(false, t)
-  elseif disarm_limit_reached(t) then
-    WHT_MODE:set_and_save(MODE_OFF)
-    send(MAV_SEVERITY_WARNING, "off after %.0f min disarmed", WHT_DISARM_MIN:get())
-    set_heater(false, t)
-    last_mode = MODE_OFF
   elseif heater_on and t - phase_start_ms >= on_ms() then
     set_heater(false, t)
   elseif not heater_on and t - phase_start_ms >= off_ms() then

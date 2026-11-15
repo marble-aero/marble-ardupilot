@@ -12,13 +12,13 @@ keeps the wing from overheating.
    `SERVOn_MIN` 1000, `SERVOn_TRIM` 1000 and `SERVOn_MAX` 2000. The trim is
    what the output sends whenever the script is not turning the heater on, so
    it must be below 1100.
-3. Set `WHT_ON_S`, `WHT_OFF_S` and the limits below.
+3. Set `WHT_ON_S` and `WHT_OFF_S`.
 
 ## Use from the ground
 
 Write `WHT_MODE` 1 to start cycling and 0 to stop, from any GCS. Every `WHT_`
 parameter is read each loop, so a change applies at once. A cycle starts with
-the heater on.
+the heater on. The heater runs armed or disarmed.
 
 `WHT_MODE` is set to 0 when the script loads, so the heater never comes on by
 itself at power up.
@@ -28,16 +28,12 @@ itself at power up.
 | Parameter | Default | Meaning |
 |---|---|---|
 | `WHT_MODE` | 0 | 0 off, 1 cycling |
-| `WHT_ON_S` | 10 | Seconds on per cycle |
+| `WHT_ON_S` | 10 | Seconds on per cycle, 0 keeps it off |
 | `WHT_OFF_S` | 20 | Seconds off per cycle |
-| `WHT_ON_MAX` | 15 | Longest on time allowed, whatever `WHT_ON_S` says |
-| `WHT_OFF_MIN` | 10 | Shortest off time allowed, whatever `WHT_OFF_S` says |
-| `WHT_DISARM_MIN` | 10 | Minutes it may cycle while disarmed before `WHT_MODE` goes to 0 (0 for no limit) |
 | `WHT_SCR_OUT` | 1 | Scripting output used, 1 for Script1 (function 94) |
 | `WHT_PWM_ON` | 2000 | PWM sent while on |
 
-Set `WHT_ON_MAX` and `WHT_OFF_MIN` from bench measurements once the timing is
-known, so a mistyped `WHT_ON_S` or `WHT_OFF_S` can't overheat the wing.
+Nothing limits the timing, so a `WHT_OFF_S` of 0 leaves the heater on.
 
 ## Failing off
 
