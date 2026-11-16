@@ -142,9 +142,11 @@ local function report(t)
     return
   end
   last_report_ms = t
+  local mode = math.floor(WHT_MODE:get())
   local state = heater_on and 1 or 0
+  gcs:send_named_float("WHT_MODE", mode)
   gcs:send_named_float("WHT_ON", state)
-  logger:write("WHT", "Mode,On", "BB", math.floor(WHT_MODE:get()), state)
+  logger:write("WHT", "Mode,On", "BB", mode, state)
 end
 
 local function update()

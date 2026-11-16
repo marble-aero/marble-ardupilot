@@ -49,5 +49,8 @@ Nothing limits the timing, so a `WHT_OFF_S` of 0 leaves the heater on.
 
 ## Feedback
 
-`WHT_ON` (1 on, 0 off) is sent as a named float every second, and `WHT` logs
-the mode and state once a second. Mode changes are sent as GCS messages.
+`WHT_MODE` (the mode) and `WHT_ON` (1 while the heater is on, 0 between
+heats) are sent as named floats every second, and `WHT` logs both once a
+second. Mode changes are sent as GCS messages. Onboard reads the two named
+floats for Control, and takes an aircraft that has not sent them for 5 s as
+having no wing heating running.
