@@ -761,8 +761,8 @@ private:
         // mission change time last checked for in-flight edits of the active loiter
         uint32_t mission_change_ms;
 
-        // radius in metres from the active LOITER_TURNS command, 0 for WP_LOITER_RAD
-        uint16_t turns_radius;
+        // radius in metres from the active LOITER_TURNS or LOITER_TIME command, 0 for WP_LOITER_RAD
+        uint16_t cmd_radius;
 
         // true once we have warned that an uploaded radius was ignored
         bool radius_change_ignored;
@@ -1014,6 +1014,7 @@ private:
 #endif
     void loiter_set_direction_wp(const AP_Mission::Mission_Command& cmd);
     bool read_updated_loiter_cmd(AP_Mission::Mission_Command &cmd);
+    void update_loiter_cmd_radius(uint16_t radius);
     void do_loiter_unlimited(const AP_Mission::Mission_Command& cmd);
     void do_loiter_turns(const AP_Mission::Mission_Command& cmd);
     void do_loiter_time(const AP_Mission::Mission_Command& cmd);
