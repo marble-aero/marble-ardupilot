@@ -437,6 +437,35 @@ public:
         }
 
         /*
+          return the loiter time in seconds for a LOITER_TIME command
+          this has special handling for a radius packed into cmd.p1
+         */
+        uint16_t get_loiter_time_s(void) const {
+            if (!(type_specific_bits & (1U<<2))) {
+                return p1;
+            }
+            uint16_t seconds = LOWBYTE(p1);
+            if (type_specific_bits & (1U<<1)) {
+                seconds *= 10;
+            }
+            return seconds;
+        }
+
+        /*
+          return the radius in metres for a LOITER_TIME command, 0 to use WP_LOITER_RAD
+         */
+        uint16_t get_loiter_time_radius_m(void) const {
+            if (!(type_specific_bits & (1U<<2))) {
+                return 0;
+            }
+            uint16_t radius = HIGHBYTE(p1);
+            if (type_specific_bits & (1U<<0)) {
+                radius *= 10;
+            }
+            return radius;
+        }
+
+        /*
           return the arc angle in radians for an ARC_WAYPOINT command
           this has special handling for arc waypoints using cmd.p1 and loiter_ccw
          */

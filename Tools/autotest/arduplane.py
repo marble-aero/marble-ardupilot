@@ -6158,6 +6158,43 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             raise NotAchievedException("Expected about 90s in loiter, got %.0fs" % seconds)
         self.fly_home_land_and_disarm(240)
 
+    def LoiterTimeRadius(self):
+        '''test LOITER_TIME flies the radius in param3, which is stored with its time'''
+        time_cmd = mavutil.mavlink.MAV_CMD_NAV_LOITER_TIME
+        loc = self.home_relative_loc_ne(800, 0)
+
+        # a time with a radius is stored in 10s steps above 255s, up to 2550s
+        try:
+            self.upload_loiter_reupload_mission(time_cmd, loc, 3000, p3=250)
+        except NotAchievedException as e:
+            if "MAV_MISSION_INVALID_PARAM1" not in str(e):
+                raise
+        else:
+            raise NotAchievedException("A radius with a time over 2550s should be refused")
+
+        for (seconds, radius) in [(600, 250), (60, -1000), (40, 0)]:
+            self.upload_loiter_reupload_mission(time_cmd, loc, seconds, p3=radius)
+            item = self.download_using_mission_protocol(mavutil.mavlink.MAV_MISSION_TYPE_MISSION)[2]
+            want_radius = radius if abs(radius) > 1 else 1
+            if item.param1 != seconds or item.param3 != want_radius:
+                raise NotAchievedException("Expected %us at %dm, got %us at %dm" %
+                                           (seconds, want_radius, item.param1, item.param3))
+
+        self.upload_loiter_reupload_mission(time_cmd, loc, 300, p3=250)
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
+        self.wait_current_waypoint(2, timeout=300)
+        self.wait_circling_point_with_radius(loc, 250, epsilon=30, timeout=240)
+        self.upload_loiter_reupload_mission(time_cmd, loc, 300, p3=120)
+        self.wait_statustext("Loiter radius updated to 120m", check_context=True)
+        self.wait_circling_point_with_radius(loc, 120, epsilon=20, timeout=240)
+        self.assert_current_waypoint(2)
+        self.wait_current_waypoint(3, timeout=600)
+        self.fly_home_land_and_disarm(240)
+
     def MidAirDisarmDisallowed(self):
         '''Ensure mid-air disarm is not possible'''
         self.takeoff(50)
@@ -8644,6 +8681,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.LoiterTurnsReuploadRadiusTangentialEntry,
             self.LoiterTurnsReuploadRadiusReverse,
             self.LoiterTimeReupload,
+            self.LoiterTimeRadius,
         ]
 
     def disabled_tests(self):
