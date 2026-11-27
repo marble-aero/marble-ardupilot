@@ -733,6 +733,18 @@ void GCS_MAVLINK::send_mission_current(const class AP_Mission &mission, uint16_t
         num_commands, // total
         mission_state(mission), // mission_state
         mission_mode);  // mission_mode
+
+    // MarblePlane: the id of the mission held, which this MAVLink's
+    // MISSION_CURRENT has no field for, so a ground station need not read
+    // the mission back to know it is unchanged
+    if (HAVE_PAYLOAD_SPACE(chan, NAMED_VALUE_INT)) {
+        const char name[MAVLINK_MSG_NAMED_VALUE_INT_FIELD_NAME_LEN] {"MIS_ID"};
+        mavlink_msg_named_value_int_send(
+            chan,
+            AP_HAL::millis(),
+            name,
+            int32_t(mission.mission_id()));
+    }
 }
 
 #if AP_MAVLINK_MISSION_SET_CURRENT_ENABLED

@@ -695,6 +695,11 @@ public:
         return _last_change_time_ms;
     }
 
+    // a CRC32 of the stored mission, home left out as it moves on arming, so
+    // a ground station can tell whether the mission it read is still the one
+    // held without reading it back. Worked out again only after a change
+    uint32_t mission_id(void) const;
+
     // find the nearest landing sequence starting point (DO_LAND_START) and
     // return its index.  Returns 0 if no appropriate DO_LAND_START point can
     // be found.
@@ -958,6 +963,14 @@ private:
     // last time that mission changed
     uint32_t _last_change_time_ms;
     uint32_t _last_change_time_prev_ms;
+
+    // counts every change, as two can land in the same millisecond
+    uint32_t _change_count;
+    // mission_id() as of _mission_id_change_count changes and that many commands
+    mutable uint32_t _mission_id;
+    mutable uint32_t _mission_id_change_count;
+    mutable uint16_t _mission_id_num_commands;
+    mutable bool _mission_id_valid;
 
     // maximum number of commands that will fit in storage
     uint16_t _commands_max;
