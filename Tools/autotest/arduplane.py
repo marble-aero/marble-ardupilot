@@ -6195,6 +6195,47 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
         self.wait_current_waypoint(3, timeout=600)
         self.fly_home_land_and_disarm(240)
 
+    def MissionId(self):
+        '''test MIS_ID, sent with MISSION_CURRENT, names the mission held but not home'''
+        self.set_message_rate_hz('MISSION_CURRENT', 4)
+
+        def mission_id():
+            self.drain_mav()
+            return self.assert_receive_message(
+                'NAMED_VALUE_INT',
+                condition="NAMED_VALUE_INT.name=='MIS_ID'",
+                timeout=10,
+            ).value
+
+        def upload(north):
+            self.upload_simple_relhome_mission([
+                (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, 30),
+                (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, north, 0, 100),
+                (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, north, 500, 100),
+            ])
+
+        self.clear_mission(mavutil.mavlink.MAV_MISSION_TYPE_MISSION)
+        empty = mission_id()
+        upload(800)
+        first = mission_id()
+        if first == empty:
+            raise NotAchievedException("MIS_ID did not change with a new mission")
+        if mission_id() != first:
+            raise NotAchievedException("MIS_ID changed with no new mission")
+        upload(900)
+        moved = mission_id()
+        if moved == first:
+            raise NotAchievedException("MIS_ID did not change when a waypoint moved")
+        upload(800)
+        if mission_id() != first:
+            raise NotAchievedException("The same mission uploaded again got another MIS_ID")
+
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        if mission_id() != first:
+            raise NotAchievedException("MIS_ID changed when arming moved home")
+        self.disarm_vehicle()
+
     def MidAirDisarmDisallowed(self):
         '''Ensure mid-air disarm is not possible'''
         self.takeoff(50)
@@ -8682,6 +8723,7 @@ class AutoTestPlane(vehicle_test_suite.TestSuite):
             self.LoiterTurnsReuploadRadiusReverse,
             self.LoiterTimeReupload,
             self.LoiterTimeRadius,
+            self.MissionId,
         ]
 
     def disabled_tests(self):

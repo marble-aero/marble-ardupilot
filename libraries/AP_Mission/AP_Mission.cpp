@@ -10,6 +10,7 @@
 #include <AP_Camera/AP_Camera.h>
 #include <AP_Gripper/AP_Gripper_config.h>
 #include "AP_Mission.h"
+#include <AP_Math/crc.h>
 #include <AP_Scripting/AP_Scripting.h>
 #include <AP_ServoRelayEvents/AP_ServoRelayEvents_config.h>
 #include <AP_Terrain/AP_Terrain.h>
@@ -102,6 +103,7 @@ void AP_Mission::init()
     }
 
     _last_change_time_ms = AP_HAL::millis();
+    _change_count++;
 }
 
 /// start - resets current commands to point to the beginning of the mission
@@ -302,6 +304,7 @@ void AP_Mission::truncate(uint16_t index)
     if ((unsigned)_cmd_total > index) {
         _cmd_total.set_and_save(index);
         _last_change_time_ms = AP_HAL::millis();
+        _change_count++;
     }
 }
 
@@ -993,6 +996,7 @@ bool AP_Mission::write_cmd_to_storage(uint16_t index, const Mission_Command& cmd
     if (index != 0) {
         // Update of home location is not a true change
         _last_change_time_ms = AP_HAL::millis();
+        _change_count++;
     }
 
     // return success
@@ -3069,6 +3073,35 @@ uint16_t AP_Mission::get_command_id(uint16_t index) const
         id = b[0];
     }
     return id;
+}
+
+/*
+  a CRC32 of the command count and the stored bytes of every command but
+  home, kept until the mission next changes
+ */
+uint32_t AP_Mission::mission_id() const
+{
+    WITH_SEMAPHORE(_rsem);
+    const uint16_t count = num_commands();
+    if (_mission_id_valid &&
+        _mission_id_change_count == _change_count &&
+        _mission_id_num_commands == count) {
+        return _mission_id;
+    }
+    uint32_t crc = crc_crc32(0, (const uint8_t *)&count, sizeof(count));
+    for (uint16_t index = 1; index < count; index++) {
+        uint8_t stored[AP_MISSION_EEPROM_COMMAND_SIZE];
+        const uint16_t pos_in_storage = 4 + (index * AP_MISSION_EEPROM_COMMAND_SIZE);
+        if (!_storage.read_block(stored, pos_in_storage, sizeof(stored))) {
+            return 0;
+        }
+        crc = crc_crc32(crc, stored, sizeof(stored));
+    }
+    _mission_id = crc;
+    _mission_id_change_count = _change_count;
+    _mission_id_num_commands = count;
+    _mission_id_valid = true;
+    return crc;
 }
 
 /*
